@@ -14,18 +14,30 @@ const NotificationInbox = () => {
     fetchFriendRequests();
     
     // Set up real-time subscription for new friend requests
-    const friendRequestSubscription = supabase
-      .channel('friend_requests_channel')
-      .on('postgres_changes', {
-        event: 'INSERT',
-        schema: 'public',
-        table: 'friend_requests',
-        filter: `recipient_id=eq.${supabase.auth.getUser()?.data?.user?.id}`
-      }, () => {
-        fetchFriendRequests();
-      })
-      .subscribe();
-
+    const setupSubscription = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      
+      console.log("Setting up real-time subscription for user:", user.id);
+      
+      const friendRequestSubscription = supabase
+        .channel('friend_requests_channel')
+        .on('postgres_changes', {
+          event: '*', // Listen for all events (INSERT, UPDATE, DELETE)
+          schema: 'public',
+          table: 'friend_requests',
+          filter: `recipient_id=eq.${user.id}`
+        }, (payload) => {
+          console.log("Received real-time update:", payload);
+          fetchFriendRequests();
+        })
+        .subscribe();
+        
+      return friendRequestSubscription;
+    };
+    
+    const subscription = setupSubscription();
+    
     // Handle clicks outside the dropdown to close it
     const handleClickOutside = (event) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
@@ -36,7 +48,10 @@ const NotificationInbox = () => {
     document.addEventListener('mousedown', handleClickOutside);
 
     return () => {
-      friendRequestSubscription.unsubscribe();
+      // Clean up subscription on component unmount
+      if (subscription) {
+        subscription.then(sub => sub.unsubscribe());
+      }
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, []);
@@ -47,7 +62,12 @@ const NotificationInbox = () => {
       setLoading(true);
       
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      if (!user) {
+        console.log("No authenticated user found");
+        return;
+      }
+      
+      console.log("Fetching friend requests for user:", user.id);
       
       // Get pending friend requests
       const { data, error } = await supabase
@@ -57,13 +77,18 @@ const NotificationInbox = () => {
           sender_id,
           status,
           created_at,
-          profiles:sender_id (name, avatar_url)
+          profiles!friend_requests_sender_id_fkey(name, avatar_url)
         `)
         .eq('recipient_id', user.id)
         .eq('status', 'pending')
         .order('created_at', { ascending: false });
       
-      if (error) throw error;
+      if (error) {
+        console.error('Error fetching friend requests:', error);
+        throw error;
+      }
+      
+      console.log("Friend requests received:", data);
       
       setRequests(data || []);
       setNotificationCount(data?.length || 0);

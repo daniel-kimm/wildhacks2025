@@ -181,52 +181,65 @@ const AddFriend = () => {
     setSearchResults(filtered);
   };
 
-  // Handle sending a friend request
-  const handleSendRequest = async (recipientId) => {
+  // Function to send a friend request
+  const handleAddFriend = async (recipientId) => {
     try {
-      // Set loading state for this specific user
       setLoadingStates(prev => ({ ...prev, [recipientId]: true }));
       
       // Get current user ID
-      const { data: { session } } = await supabase.auth.getSession();
-      const currentUserId = session?.user?.id;
+      const { data: { user } } = await supabase.auth.getUser();
       
-      if (!currentUserId) {
-        throw new Error('You must be logged in to send friend requests');
+      if (!user) {
+        throw new Error('You must be logged in to send a friend request');
       }
       
-      // Send friend request
+      console.log(`Sending friend request from ${user.id} to ${recipientId}`);
+      
+      // Insert the friend request into the friend_requests table
       const { error } = await supabase
         .from('friend_requests')
-        .insert([
-          { 
-            sender_id: currentUserId, 
-            recipient_id: recipientId,
-            status: 'pending'
-          }
-        ]);
+        .insert({
+          sender_id: user.id,
+          recipient_id: recipientId,
+          status: 'pending'
+        });
       
-      if (error) throw error;
-      
-      // Update the local state to mark this user as having a pending request
-      setAllUsers(prev => 
-        prev.map(user => 
-          user.id === recipientId ? { ...user, requestStatus: 'pending' } : user
-        )
-      );
-      
-      setSearchResults(prev => 
-        prev.map(user => 
-          user.id === recipientId ? { ...user, requestStatus: 'pending' } : user
-        )
-      );
-      
-      alert('Friend request sent!');
+      if (error) {
+        console.error('Error sending friend request:', error);
+        
+        // Check if it's a duplicate request
+        if (error.code === '23505') {
+          alert('Friend request already sent to this user');
+        } else {
+          throw error;
+        }
+      } else {
+        console.log('Friend request sent successfully');
+        
+        // Update the local state to show request as pending
+        setAllUsers(prevUsers => 
+          prevUsers.map(u => 
+            u.id === recipientId 
+              ? { ...u, requestStatus: 'pending' } 
+              : u
+          )
+        );
+        
+        alert('Friend request sent successfully!');
+      }
+
+      // Verify the request was saved
+      const { data: checkRequest } = await supabase
+        .from('friend_requests')
+        .select('*')
+        .eq('sender_id', user.id)
+        .eq('recipient_id', recipientId);
+
+      console.log("Verification of request saved:", checkRequest);
     } catch (error) {
-      console.error('Error sending friend request:', error.message);
-      alert('Failed to send friend request. Please try again.');
+      console.error('Error in handleAddFriend:', error);
+      alert(`Failed to send friend request: ${error.message}`);
     } finally {
-      // Clear loading state for this user
       setLoadingStates(prev => ({ ...prev, [recipientId]: false }));
     }
   };
@@ -240,15 +253,15 @@ const AddFriend = () => {
       return <FriendAddedButton disabled>Already Friends</FriendAddedButton>;
     }
     
-    switch(user.requestStatus) {
+    switch (user.requestStatus) {
       case 'pending':
         return <PendingButton disabled>Request Sent</PendingButton>;
       case 'rejected':
-        return <RejectedButton disabled>Request Denied</RejectedButton>;
+        return <RejectedButton disabled>Request Rejected</RejectedButton>;
       default:
         return (
-          <SendRequestButton 
-            onClick={() => handleSendRequest(user.id)}
+          <SendRequestButton
+            onClick={() => handleAddFriend(user.id)}
             disabled={loadingStates[user.id]}
           >
             {loadingStates[user.id] ? 'Sending...' : 'Send Request'}
@@ -256,6 +269,13 @@ const AddFriend = () => {
         );
     }
   };
+
+  console.log("AddFriend component state:", {
+    user,
+    allUsers: allUsers.length,
+    searchResults: searchResults.length,
+    displayResults: Array.isArray(displayResults) ? displayResults.length : 'N/A'
+  });
 
   return (
     <PageContainer>
