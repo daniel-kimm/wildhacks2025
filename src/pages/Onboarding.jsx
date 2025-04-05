@@ -176,6 +176,9 @@ const Onboarding = () => {
                 <GoogleIcon>G</GoogleIcon>
                 {loading ? 'Connecting...' : 'Sign in with Google'}
               </GoogleButton>
+              <ExistingUserRow>
+                Already have an account? <ExistingUserLink onClick={() => navigate('/login')}>Sign in</ExistingUserLink>
+              </ExistingUserRow>
             </StepContainer>
           )}
 
@@ -464,6 +467,23 @@ const ErrorMessage = styled.p`
   font-size: 0.875rem;
   margin-top: 5px;
   margin-bottom: 0;
+`;
+
+const ExistingUserRow = styled.div`
+  text-align: center;
+  margin-bottom: 20px;
+  font-size: 0.9rem;
+  color: #666;
+`;
+
+const ExistingUserLink = styled.span`
+  color: #6e8efb;
+  font-weight: 500;
+  cursor: pointer;
+  
+  &:hover {
+    text-decoration: underline;
+  }
 `;
 
 export default Onboarding; 

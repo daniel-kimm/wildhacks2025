@@ -31,6 +31,8 @@ const Dashboard = () => {
     { id: 2, name: 'Coffee Enthusiasts', members: 3 },
   ]);
 
+  const [showUserMenu, setShowUserMenu] = useState(false);
+
   // Load user data
   useEffect(() => {
     const loadUserData = async () => {
@@ -82,6 +84,15 @@ const Dashboard = () => {
     navigate(path);
   };
 
+  const handleSignOut = async () => {
+    try {
+      await supabase.auth.signOut();
+      navigate('/login');
+    } catch (error) {
+      console.error('Error signing out:', error);
+    }
+  };
+
   return (
     <DashboardContainer>
       <Header>
@@ -95,8 +106,17 @@ const Dashboard = () => {
         <UserSection>
           <NotificationInbox />
           <UserName>{user.name}</UserName>
-          <UserAvatar>
+          <UserAvatar onClick={() => setShowUserMenu(!showUserMenu)}>
             <img src={user.avatar} alt="User avatar" />
+            
+            {showUserMenu && (
+              <UserMenu>
+                <UserMenuItem>Profile</UserMenuItem>
+                <UserMenuItem>Settings</UserMenuItem>
+                <UserMenuDivider />
+                <UserMenuItem onClick={handleSignOut}>Sign Out</UserMenuItem>
+              </UserMenu>
+            )}
           </UserAvatar>
         </UserSection>
       </Header>
@@ -530,6 +550,34 @@ const EmptyState = styled.div`
   color: #666;
   font-size: 0.9rem;
   line-height: 1.5;
+`;
+
+const UserMenu = styled.div`
+  position: absolute;
+  top: 40px;
+  right: 0;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+  width: 150px;
+  z-index: 1000;
+  overflow: hidden;
+`;
+
+const UserMenuItem = styled.div`
+  padding: 12px 15px;
+  cursor: pointer;
+  transition: background 0.2s;
+  
+  &:hover {
+    background: #f5f7fa;
+  }
+`;
+
+const UserMenuDivider = styled.div`
+  height: 1px;
+  background: #e1e4e8;
+  margin: 5px 0;
 `;
 
 export default Dashboard; 
