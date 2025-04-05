@@ -1,14 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { useNavigate } from 'react-router-dom';
+import { supabase } from '../utils/supabaseClient';
 
 const Dashboard = () => {
   const navigate = useNavigate();
 
   // Add user data state (this would normally come from context or authentication)
   const [user, setUser] = useState({
-    name: "Jane Doe",
-    avatar: "https://via.placeholder.com/40"
+    name: 'User',
+    avatar: 'https://via.placeholder.com/40'
   });
 
   // Sample data - would come from API in a real application
@@ -28,6 +29,40 @@ const Dashboard = () => {
     { id: 1, name: 'Weekend Adventurers', members: 5 },
     { id: 2, name: 'Coffee Enthusiasts', members: 3 },
   ]);
+
+  // Load user data
+  useEffect(() => {
+    const loadUserData = async () => {
+      // Get session data
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      // Get saved user data from localStorage
+      const savedUserData = localStorage.getItem('userData');
+      
+      if (session && session.user) {
+        const { user: authUser } = session;
+        
+        // Set user data from session
+        setUser({
+          name: authUser.user_metadata?.full_name || 'User',
+          avatar: authUser.user_metadata?.avatar_url || 'https://via.placeholder.com/40',
+          email: authUser.email
+        });
+      } else if (savedUserData) {
+        // Fallback to localStorage if session not available
+        const parsedData = JSON.parse(savedUserData);
+        setUser(prevUser => ({
+          ...prevUser,
+          name: parsedData.name || 'User',
+          avatar: parsedData.avatar_url || 'https://via.placeholder.com/40'
+        }));
+      }
+      
+      // ... rest of your loading logic
+    };
+
+    loadUserData();
+  }, []);
 
   const handleAddFriend = () => {
     navigate('/add-friend');

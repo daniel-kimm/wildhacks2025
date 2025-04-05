@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { useNavigate } from 'react-router-dom';
+import { supabase } from '../utils/supabaseClient';
 
 const Onboarding = () => {
   const navigate = useNavigate();
@@ -9,9 +10,40 @@ const Onboarding = () => {
   const [userData, setUserData] = useState({
     name: '',
     interests: '',
-    preferences: ''
+    preferences: '',
+    email: '',
+    avatar_url: ''
   });
   const [errors, setErrors] = useState({});
+  const [loading, setLoading] = useState(false);
+
+  // Check if user is already logged in
+  useEffect(() => {
+    const checkUser = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (session) {
+        const { user } = session;
+        // User is logged in, set user data
+        setIsLoggedIn(true);
+        setUserData(prev => ({
+          ...prev,
+          name: user.user_metadata?.full_name || '',
+          email: user.email,
+          avatar_url: user.user_metadata?.avatar_url || ''
+        }));
+        
+        // If they have a name already, move to step 2
+        if (user.user_metadata?.full_name) {
+          setStep(2);
+        } else {
+          setStep(1);
+        }
+      }
+    };
+    
+    checkUser();
+  }, []);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -65,25 +97,56 @@ const Onboarding = () => {
     setStep(step - 1);
   };
 
-  const handleGoogleLogin = () => {
-    // This would be replaced with actual Google OAuth implementation
-    console.log('Logging in with Google...');
-    // Simulate successful login
-    setIsLoggedIn(true);
-    nextStep();
+  const handleGoogleLogin = async () => {
+    try {
+      setLoading(true);
+      
+      // Initialize the Google OAuth sign-in
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: window.location.origin + '/onboarding'
+        }
+      });
+      
+      if (error) throw error;
+      
+      // The page will reload after successful authentication
+    } catch (error) {
+      console.error('Error signing in with Google:', error.message);
+      alert('Error signing in with Google. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (validateStep(step)) {
-      // Save user data to localStorage before redirecting
-      localStorage.setItem('userData', JSON.stringify(userData));
-      
-      // Here you would connect to your backend to save user data
-      console.log('Submitting user data:', userData);
-      
-      // Navigate to dashboard after successful submission
-      navigate('/dashboard');
+      try {
+        setLoading(true);
+        
+        // Save user data to localStorage
+        localStorage.setItem('userData', JSON.stringify(userData));
+        
+        // Update user metadata in Supabase
+        const { error } = await supabase.auth.updateUser({
+          data: {
+            interests: userData.interests,
+            preferences: userData.preferences
+          }
+        });
+        
+        if (error) throw error;
+        
+        // Navigate to dashboard after successful submission
+        navigate('/dashboard');
+      } catch (error) {
+        console.error('Error saving user data:', error.message);
+        alert('Failed to save your preferences. Please try again.');
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
@@ -109,9 +172,13 @@ const Onboarding = () => {
               <StepDescription>
                 Please sign in with your Google account to get started.
               </StepDescription>
-              <GoogleButton type="button" onClick={handleGoogleLogin}>
+              <GoogleButton 
+                type="button" 
+                onClick={handleGoogleLogin}
+                disabled={loading}
+              >
                 <GoogleIcon>G</GoogleIcon>
-                Sign in with Google
+                {loading ? 'Connecting...' : 'Sign in with Google'}
               </GoogleButton>
             </StepContainer>
           )}
@@ -119,6 +186,11 @@ const Onboarding = () => {
           {step === 1 && (
             <StepContainer>
               <StepTitle>Welcome to HangoutAI!</StepTitle>
+              {userData.avatar_url && (
+                <UserProfileImage>
+                  <img src={userData.avatar_url} alt="Your profile" />
+                </UserProfileImage>
+              )}
               <StepDescription>
                 We'll help you and your friends find the perfect places to hang out.
                 First, let's get to know you better.
@@ -136,7 +208,9 @@ const Onboarding = () => {
                 />
                 {errors.name && <ErrorMessage>{errors.name}</ErrorMessage>}
               </InputGroup>
-              <Button type="button" onClick={nextStep}>Next</Button>
+              <Button type="button" onClick={nextStep} disabled={loading}>
+                {loading ? 'Saving...' : 'Next'}
+              </Button>
             </StepContainer>
           )}
 
@@ -160,8 +234,10 @@ const Onboarding = () => {
                 {errors.interests && <ErrorMessage>{errors.interests}</ErrorMessage>}
               </InputGroup>
               <ButtonGroup>
-                <Button type="button" secondary onClick={prevStep}>Back</Button>
-                <Button type="button" onClick={nextStep}>Next</Button>
+                <Button type="button" secondary onClick={prevStep} disabled={loading}>Back</Button>
+                <Button type="button" onClick={nextStep} disabled={loading}>
+                  {loading ? 'Saving...' : 'Next'}
+                </Button>
               </ButtonGroup>
             </StepContainer>
           )}
@@ -186,8 +262,14 @@ const Onboarding = () => {
                 {errors.preferences && <ErrorMessage>{errors.preferences}</ErrorMessage>}
               </InputGroup>
               <ButtonGroup>
-                <Button type="button" secondary onClick={prevStep}>Back</Button>
-                <Button type="submit" onClick={(e) => validateStep(step) ? handleSubmit(e) : e.preventDefault()}>Get Started</Button>
+                <Button type="button" secondary onClick={prevStep} disabled={loading}>Back</Button>
+                <Button 
+                  type="submit" 
+                  disabled={loading}
+                  onClick={(e) => validateStep(step) ? handleSubmit(e) : e.preventDefault()}
+                >
+                  {loading ? 'Saving...' : 'Get Started'}
+                </Button>
               </ButtonGroup>
             </StepContainer>
           )}
@@ -196,6 +278,22 @@ const Onboarding = () => {
     </OnboardingContainer>
   );
 };
+
+// New styled component for the user's profile image
+const UserProfileImage = styled.div`
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  overflow: hidden;
+  margin: 0 auto 20px;
+  border: 3px solid #6e8efb;
+  
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+`;
 
 // Styled Components
 const OnboardingContainer = styled.div`

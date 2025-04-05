@@ -1,10 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
+import { supabase } from '../utils/supabaseClient';
 
 const Friends = () => {
   const navigate = useNavigate();
-  const [user, setUser] = useState({ name: 'User' });
+  const [user, setUser] = useState({ 
+    name: 'User',
+    avatar: 'https://via.placeholder.com/40'
+  });
   const [friends, setFriends] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isLoading, setIsLoading] = useState(true);
@@ -55,21 +59,39 @@ const Friends = () => {
 
   // Load user data and friends on component mount
   useEffect(() => {
-    // Load user data from localStorage
-    const savedUserData = localStorage.getItem('userData');
-    if (savedUserData) {
-      const parsedData = JSON.parse(savedUserData);
-      setUser(prevUser => ({
-        ...prevUser,
-        name: parsedData.name
-      }));
-    }
+    const loadUserData = async () => {
+      // Get session data from Supabase
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (session && session.user) {
+        const { user: authUser } = session;
+        
+        // Set user data from Supabase auth
+        setUser({
+          name: authUser.user_metadata?.full_name || 'User',
+          avatar: authUser.user_metadata?.avatar_url || 'https://via.placeholder.com/40'
+        });
+      } else {
+        // Fallback to localStorage
+        const savedUserData = localStorage.getItem('userData');
+        if (savedUserData) {
+          const parsedData = JSON.parse(savedUserData);
+          setUser(prevUser => ({
+            ...prevUser,
+            name: parsedData.name || 'User',
+            avatar: parsedData.avatar_url || 'https://via.placeholder.com/40'
+          }));
+        }
+      }
+      
+      // Simulate API loading delay
+      setTimeout(() => {
+        setFriends(sampleFriends);
+        setIsLoading(false);
+      }, 800);
+    };
 
-    // Simulate API loading delay
-    setTimeout(() => {
-      setFriends(sampleFriends);
-      setIsLoading(false);
-    }, 800);
+    loadUserData();
   }, []);
 
   // Handle search input change
@@ -108,7 +130,7 @@ const Friends = () => {
         <UserSection>
           <UserName>{user.name}</UserName>
           <UserAvatar>
-            <img src="https://via.placeholder.com/40" alt="User avatar" />
+            <img src={user.avatar} alt="User avatar" />
           </UserAvatar>
         </UserSection>
       </Header>
