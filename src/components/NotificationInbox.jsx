@@ -69,7 +69,19 @@ const NotificationInbox = () => {
       
       console.log("Fetching friend requests for user:", user.id);
       
-      // Get pending friend requests with correct profiles join
+      // First, check if table exists and has the right structure
+      const { data: tableInfo, error: tableError } = await supabase
+        .from('friend_requests')
+        .select('*')
+        .limit(1);
+        
+      if (tableError) {
+        console.error('Error checking friend_requests table:', tableError);
+      } else {
+        console.log('Friend requests table check:', tableInfo);
+      }
+      
+      // Get pending friend requests with detailed logging
       const { data, error } = await supabase
         .from('friend_requests')
         .select(`
@@ -77,21 +89,35 @@ const NotificationInbox = () => {
           sender_id,
           status,
           created_at,
-          sender:profiles(name, avatar_url)
+          sender:profiles(id, name, avatar_url)
         `)
         .eq('recipient_id', user.id)
-        .eq('status', 'pending')
-        .order('created_at', { ascending: false });
+        .eq('status', 'pending');
       
       if (error) {
         console.error('Error fetching friend requests:', error);
         throw error;
       }
       
-      console.log("Friend requests received:", data);
+      console.log("Friend requests raw data:", data);
       
-      setRequests(data || []);
-      setNotificationCount(data?.length || 0);
+      // Map the data to ensure it has the expected structure
+      const formattedRequests = data?.map(request => ({
+        id: request.id,
+        sender_id: request.sender_id,
+        status: request.status,
+        created_at: request.created_at,
+        sender: {
+          id: request.sender?.id || request.sender_id,
+          name: request.sender?.name || 'Unknown User',
+          avatar_url: request.sender?.avatar_url || null
+        }
+      })) || [];
+      
+      console.log("Formatted friend requests:", formattedRequests);
+      
+      setRequests(formattedRequests);
+      setNotificationCount(formattedRequests.length || 0);
     } catch (error) {
       console.error('Error fetching friend requests:', error);
     } finally {
@@ -164,8 +190,11 @@ const NotificationInbox = () => {
 
   // Toggle inbox open/closed
   const toggleInbox = () => {
-    setIsOpen(!isOpen);
-    if (!isOpen) {
+    const newIsOpen = !isOpen;
+    console.log("Toggling inbox:", newIsOpen ? "open" : "closed");
+    setIsOpen(newIsOpen);
+    if (newIsOpen) {
+      console.log("Refreshing friend requests");
       fetchFriendRequests(); // Refresh data when opening
     }
   };
@@ -191,16 +220,16 @@ const NotificationInbox = () => {
               {requests.map(request => (
                 <NotificationItem key={request.id}>
                   <RequestAvatar>
-                    {request.sender.avatar_url ? (
+                    {request.sender?.avatar_url ? (
                       <img src={request.sender.avatar_url} alt="User avatar" />
                     ) : (
                       <AvatarPlaceholder>
-                        {(request.sender.name || 'U').charAt(0).toUpperCase()}
+                        {(request.sender?.name || 'U').charAt(0).toUpperCase()}
                       </AvatarPlaceholder>
                     )}
                   </RequestAvatar>
                   <RequestInfo>
-                    <RequestName>{request.sender.name || 'Unknown User'}</RequestName>
+                    <RequestName>{request.sender?.name || 'Unknown User'}</RequestName>
                     <RequestTime>
                       {new Date(request.created_at).toLocaleDateString()}
                     </RequestTime>
@@ -295,8 +324,7 @@ const NotificationHeader = styled.div`
   align-items: center;
 `;
 
-const NotificationList = styled.div`
-  max-height: 350px;
+const NotificationList = styled.div`  max-height: 350px;
   overflow-y: auto;
 `;
 

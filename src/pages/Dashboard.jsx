@@ -9,6 +9,7 @@ const Dashboard = () => {
 
   // Add user data state (this would normally come from context or authentication)
   const [user, setUser] = useState({
+    id: null,
     name: 'User',
     avatar: 'https://via.placeholder.com/40'
   });
@@ -21,11 +22,8 @@ const Dashboard = () => {
     { id: 4, name: 'Bookworm Bookstore & Café', category: 'Shopping/Café', rating: 4.5, distance: '0.6 miles' },
   ]);
 
-  const [friends, setFriends] = useState([
-    { id: 1, name: 'Alex Johnson', mutualInterests: ['coffee', 'hiking'] },
-    { id: 2, name: 'Sam Carter', mutualInterests: ['art', 'museums'] },
-  ]);
-
+  const [friends, setFriends] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [groups, setGroups] = useState([
     { id: 1, name: 'Weekend Adventurers', members: 5 },
     { id: 2, name: 'Coffee Enthusiasts', members: 3 },
@@ -33,39 +31,104 @@ const Dashboard = () => {
 
   const [showUserMenu, setShowUserMenu] = useState(false);
 
-  // Load user data
+  // Load user data and friends on component mount
   useEffect(() => {
     const loadUserData = async () => {
-      // Get session data
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      // Get saved user data from localStorage
-      const savedUserData = localStorage.getItem('userData');
-      
-      if (session && session.user) {
-        const { user: authUser } = session;
+      try {
+        setIsLoading(true);
         
-        // Set user data from session
-        setUser({
-          name: authUser.user_metadata?.full_name || 'User',
-          avatar: authUser.user_metadata?.avatar_url || 'https://via.placeholder.com/40',
-          email: authUser.email
-        });
-      } else if (savedUserData) {
-        // Fallback to localStorage if session not available
-        const parsedData = JSON.parse(savedUserData);
-        setUser(prevUser => ({
-          ...prevUser,
-          name: parsedData.name || 'User',
-          avatar: parsedData.avatar_url || 'https://via.placeholder.com/40'
-        }));
+        // Get session data from Supabase
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        if (session && session.user) {
+          const { user: authUser } = session;
+          
+          // Get the user's profile from the profiles table
+          const { data: profileData, error: profileError } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', authUser.id)
+            .single();
+          
+          if (profileError) {
+            console.error('Error fetching profile:', profileError);
+          } else if (profileData) {
+            setUser({
+              id: authUser.id,
+              name: profileData.name || authUser.user_metadata?.full_name || 'User',
+              avatar: profileData.avatar_url || authUser.user_metadata?.avatar_url || 'https://via.placeholder.com/40'
+            });
+            
+            // Load friends after setting user
+            await loadFriends(authUser.id);
+          }
+        }
+      } catch (err) {
+        console.error('Error loading user data:', err);
+      } finally {
+        setIsLoading(false);
       }
-      
-      // ... rest of your loading logic
     };
-
+    
     loadUserData();
   }, []);
+  
+  // Function to load friends from Supabase
+  const loadFriends = async (userId) => {
+    try {
+      console.log('Loading friends for user:', userId);
+      
+      // Get friend relationships
+      const { data: friendRelations, error: friendError } = await supabase
+        .from('friends')
+        .select('friend_id')
+        .eq('user_id', userId);
+      
+      if (friendError) {
+        console.error('Error fetching friends:', friendError);
+        throw friendError;
+      }
+      
+      console.log('Friend relations found:', friendRelations?.length || 0);
+      
+      if (!friendRelations || friendRelations.length === 0) {
+        setFriends([]);
+        return;
+      }
+      
+      // Get friend IDs
+      const friendIds = friendRelations.map(rel => rel.friend_id);
+      
+      // Get friend profiles
+      const { data: friendProfiles, error: profilesError } = await supabase
+        .from('profiles')
+        .select('*')
+        .in('id', friendIds);
+      
+      if (profilesError) {
+        console.error('Error fetching friend profiles:', profilesError);
+        throw profilesError;
+      }
+      
+      console.log('Friend profiles found:', friendProfiles?.length || 0);
+      
+      // Format friend data
+      const formattedFriends = friendProfiles.map(profile => ({
+        id: profile.id,
+        name: profile.name || 'Unnamed User',
+        interests: profile.interests ? (typeof profile.interests === 'string' ? 
+          profile.interests.split(',').map(i => i.trim()) : 
+          Array.isArray(profile.interests) ? profile.interests : []) : [],
+        avatar: profile.avatar_url || profile.name?.charAt(0) || 'U',
+        lastActive: 'Recently'
+      }));
+      
+      setFriends(formattedFriends);
+    } catch (error) {
+      console.error('Error loading friends:', error.message);
+      setFriends([]);
+    }
+  };
 
   const handleAddFriend = () => {
     navigate('/add-friend');
@@ -107,7 +170,11 @@ const Dashboard = () => {
           <NotificationInbox />
           <UserName>{user.name}</UserName>
           <UserAvatar onClick={() => setShowUserMenu(!showUserMenu)}>
-            <img src={user.avatar} alt="User avatar" />
+            {typeof user.avatar === 'string' && user.avatar.startsWith('http') ? (
+              <img src={user.avatar} alt="User avatar" />
+            ) : (
+              <AvatarPlaceholder>{typeof user.avatar === 'string' ? user.avatar.charAt(0) : 'U'}</AvatarPlaceholder>
+            )}
             
             {showUserMenu && (
               <UserMenu>
@@ -158,25 +225,32 @@ const Dashboard = () => {
                 Add Friend
               </AddButton>
             </SectionHeader>
-            {friends.length > 0 ? (
-              <FriendsList>
-                {friends.map(friend => (
+            {isLoading ? (
+              <LoadingIndicator>Loading friends...</LoadingIndicator>
+            ) : friends.length > 0 ? (
+              <FriendsSection>
+                {friends.slice(0, 6).map(friend => (
                   <FriendCard key={friend.id}>
                     <FriendAvatar>
-                      <img src={`https://via.placeholder.com/50?text=${friend.name.charAt(0)}`} alt={friend.name} />
+                      {friend.avatar && typeof friend.avatar === 'string' && friend.avatar.startsWith('http') ? (
+                        <img src={friend.avatar} alt={friend.name} />
+                      ) : (
+                        <AvatarPlaceholder>{typeof friend.avatar === 'string' ? friend.avatar : friend.name[0]}</AvatarPlaceholder>
+                      )}
                     </FriendAvatar>
                     <FriendInfo>
                       <FriendName>{friend.name}</FriendName>
-                      <FriendInterests>
-                        {friend.mutualInterests.join(', ')}
-                      </FriendInterests>
+                      <FriendStatus>{friend.lastActive}</FriendStatus>
                     </FriendInfo>
                   </FriendCard>
                 ))}
-              </FriendsList>
+              </FriendsSection>
             ) : (
               <EmptyState>
-                You haven't added any friends yet. Add friends to discover shared interests!
+                <EmptyStateText>You haven't added any friends yet.</EmptyStateText>
+                <AddFriendsButton onClick={() => navigate('/add-friend')}>
+                  Find Friends
+                </AddFriendsButton>
               </EmptyState>
             )}
           </SideSection>
@@ -448,20 +522,25 @@ const RecDistance = styled.div`
   color: #888;
 `;
 
-const FriendsList = styled.div`
-  padding: 10px;
+const FriendsSection = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 16px;
+  margin-bottom: 30px;
 `;
 
 const FriendCard = styled.div`
   display: flex;
   align-items: center;
-  padding: 10px;
-  border-radius: 8px;
-  transition: background-color 0.2s ease;
-  cursor: pointer;
-
+  background: white;
+  border-radius: 10px;
+  padding: 16px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  
   &:hover {
-    background-color: #f5f7fa;
+    transform: translateY(-3px);
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
   }
 `;
 
@@ -470,13 +549,25 @@ const FriendAvatar = styled.div`
   height: 50px;
   border-radius: 50%;
   overflow: hidden;
-  margin-right: 15px;
-
+  margin-right: 12px;
+  
   img {
     width: 100%;
     height: 100%;
     object-fit: cover;
   }
+`;
+
+const AvatarPlaceholder = styled.div`
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(to right, #6e8efb, #a777e3);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+  font-weight: bold;
 `;
 
 const FriendInfo = styled.div`
@@ -485,10 +576,10 @@ const FriendInfo = styled.div`
 
 const FriendName = styled.div`
   font-weight: 600;
-  margin-bottom: 3px;
+  margin-bottom: 4px;
 `;
 
-const FriendInterests = styled.div`
+const FriendStatus = styled.div`
   font-size: 0.8rem;
   color: #666;
 `;
@@ -545,16 +636,50 @@ const GroupMembers = styled.div`
 `;
 
 const EmptyState = styled.div`
-  padding: 20px;
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  background: white;
+  border-radius: 10px;
   text-align: center;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+`;
+
+const EmptyStateText = styled.p`
   color: #666;
-  font-size: 0.9rem;
-  line-height: 1.5;
+  margin-bottom: 20px;
+`;
+
+const AddFriendsButton = styled.button`
+  background: #6e8efb;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 10px 20px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.3s;
+  
+  &:hover {
+    background: #5d7dea;
+  }
+`;
+
+const LoadingIndicator = styled.div`
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 30px;
+  color: #666;
 `;
 
 const UserMenu = styled.div`
   position: absolute;
-  top: 40px;
+  top: 45px;
   right: 0;
   background: white;
   border-radius: 8px;
