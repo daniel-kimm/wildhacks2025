@@ -34,8 +34,7 @@ const Dashboard = () => {
   };
 
   const handleCreateGroup = () => {
-    // In a real app, this would open a modal or navigate to create group screen
-    console.log('Create group clicked');
+    navigate('/create-group');
   };
 
   const handleRecommendationClick = (recommendation) => {
@@ -43,15 +42,19 @@ const Dashboard = () => {
     console.log('Viewing recommendation:', recommendation);
   };
 
+  const handleNavigate = (path) => {
+    navigate(path);
+  };
+
   return (
     <DashboardContainer>
       <Header>
         <Logo>HangoutAI</Logo>
         <Navigation>
-          <NavItem active>Home</NavItem>
-          <NavItem>Friends</NavItem>
-          <NavItem>Groups</NavItem>
-          <NavItem>Explore</NavItem>
+          <NavItem active onClick={() => handleNavigate('/dashboard')}>Home</NavItem>
+          <NavItem onClick={() => handleNavigate('/friends')}>Friends</NavItem>
+          <NavItem onClick={() => handleNavigate('/groups')}>Groups</NavItem>
+          <NavItem onClick={() => handleNavigate('/map')}>Map</NavItem>
         </Navigation>
         <UserSection>
           <UserName>{user.name}</UserName>
