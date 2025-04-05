@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../utils/supabaseClient';
+import { updateUserProfile } from '../utils/userProfile';
 
 const Onboarding = () => {
   const navigate = useNavigate();
@@ -129,15 +130,10 @@ const Onboarding = () => {
         // Save user data to localStorage
         localStorage.setItem('userData', JSON.stringify(userData));
         
-        // Update user metadata in Supabase
-        const { error } = await supabase.auth.updateUser({
-          data: {
-            interests: userData.interests,
-            preferences: userData.preferences
-          }
-        });
+        // Update the user's profile in Supabase
+        const { success, error } = await updateUserProfile(userData);
         
-        if (error) throw error;
+        if (!success) throw new Error(error);
         
         // Navigate to dashboard after successful submission
         navigate('/dashboard');
