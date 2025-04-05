@@ -66,33 +66,81 @@ const Friends = () => {
       if (session && session.user) {
         const { user: authUser } = session;
         
-        // Set user data from Supabase auth
-        setUser({
-          name: authUser.user_metadata?.full_name || 'User',
-          avatar: authUser.user_metadata?.avatar_url || 'https://via.placeholder.com/40'
-        });
-      } else {
-        // Fallback to localStorage
-        const savedUserData = localStorage.getItem('userData');
-        if (savedUserData) {
-          const parsedData = JSON.parse(savedUserData);
-          setUser(prevUser => ({
-            ...prevUser,
-            name: parsedData.name || 'User',
-            avatar: parsedData.avatar_url || 'https://via.placeholder.com/40'
-          }));
+        // Get the user's profile
+        const { data: profileData, error: profileError } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', authUser.id)
+          .single();
+        
+        if (profileError) {
+          console.error('Error fetching profile:', profileError);
+        } else if (profileData) {
+          setUser({
+            id: authUser.id,
+            name: profileData.name || authUser.user_metadata?.full_name || 'User',
+            avatar: profileData.avatar_url || authUser.user_metadata?.avatar_url || 'https://via.placeholder.com/40'
+          });
         }
-      }
-      
-      // Simulate API loading delay
-      setTimeout(() => {
-        setFriends(sampleFriends);
+        
+        // Load the user's friends
+        await loadFriends(authUser.id);
+      } else {
         setIsLoading(false);
-      }, 800);
+      }
     };
 
     loadUserData();
   }, []);
+
+  // Load friends from Supabase
+  const loadFriends = async (userId) => {
+    try {
+      setIsLoading(true);
+      
+      // Get friend relationships
+      const { data: friendRelations, error: friendError } = await supabase
+        .from('friends')
+        .select('friend_id')
+        .eq('user_id', userId);
+      
+      if (friendError) throw friendError;
+      
+      if (friendRelations.length === 0) {
+        setFriends([]);
+        setIsLoading(false);
+        return;
+      }
+      
+      // Get friend IDs
+      const friendIds = friendRelations.map(rel => rel.friend_id);
+      
+      // Get friend profiles
+      const { data: friendProfiles, error: profilesError } = await supabase
+        .from('profiles')
+        .select('*')
+        .in('id', friendIds);
+      
+      if (profilesError) throw profilesError;
+      
+      // Format friend data
+      const formattedFriends = friendProfiles.map(profile => ({
+        id: profile.id,
+        name: profile.name || 'Unnamed User',
+        interests: profile.interests ? profile.interests.split(',').map(i => i.trim()) : [],
+        preferences: profile.preferences || '',
+        avatar: profile.avatar_url || profile.name?.charAt(0) || 'U',
+        lastActive: 'Recently'
+      }));
+      
+      setFriends(formattedFriends);
+    } catch (error) {
+      console.error('Error loading friends:', error.message);
+      setFriends([]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   // Handle search input change
   const handleSearchChange = (e) => {
