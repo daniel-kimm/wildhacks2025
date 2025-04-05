@@ -313,6 +313,60 @@ const AddFriend = () => {
     }
   };
 
+  // Update the handleRejectRequest function to reset the request status
+  const handleRejectRequest = async (senderId) => {
+    try {
+      setLoadingStates(prev => ({ ...prev, [senderId]: true }));
+      
+      // Get current user ID
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (!user) {
+        throw new Error('You must be logged in to reject a friend request');
+      }
+      
+      console.log(`Rejecting friend request from ${senderId} to ${user.id}`);
+      
+      // Find the request ID
+      const { data: requestData, error: requestError } = await supabase
+        .from('friend_requests')
+        .select('id')
+        .eq('sender_id', senderId)
+        .eq('recipient_id', user.id)
+        .eq('status', 'pending')
+        .single();
+      
+      if (requestError || !requestData) {
+        throw new Error('Friend request not found');
+      }
+      
+      // Update request status to 'rejected'
+      const { error: updateError } = await supabase
+        .from('friend_requests')
+        .update({ status: 'rejected', updated_at: new Date() })
+        .eq('id', requestData.id);
+      
+      if (updateError) throw updateError;
+      
+      // Update the local state - set receivedRequestStatus to null instead of 'rejected'
+      setAllUsers(prevUsers => 
+        prevUsers.map(u => 
+          u.id === senderId 
+            ? { ...u, receivedRequestStatus: null } 
+            : u
+        )
+      );
+      
+      alert('Friend request rejected');
+      await fetchAllUsers(); // Refresh the list
+    } catch (error) {
+      console.error('Error rejecting friend request:', error);
+      alert(`Failed to reject friend request: ${error.message}`);
+    } finally {
+      setLoadingStates(prev => ({ ...prev, [senderId]: false }));
+    }
+  };
+
   // Display all users if no search is active
   const displayResults = searchTerm.trim() === '' ? allUsers : searchResults;
 
@@ -326,13 +380,20 @@ const AddFriend = () => {
     if (user.receivedRequestStatus === 'pending') {
       const isLoading = loadingStates[user.id];
       return (
-        <PendingButton 
-          onClick={() => handleAcceptRequest(user.id)} 
-          style={{ background: isLoading ? '#aaa' : '#4caf50' }}
-          disabled={isLoading}
-        >
-          {isLoading ? 'Processing...' : 'Accept Request'}
-        </PendingButton>
+        <ActionButtonGroup>
+          <AcceptButton 
+            onClick={() => handleAcceptRequest(user.id)} 
+            disabled={isLoading}
+          >
+            {isLoading ? 'Processing...' : 'Accept'}
+          </AcceptButton>
+          <RejectButton
+            onClick={() => handleRejectRequest(user.id)}
+            disabled={isLoading}
+          >
+            Reject
+          </RejectButton>
+        </ActionButtonGroup>
       );
     }
     
@@ -663,7 +724,11 @@ const PendingButton = styled.button`
   font-size: 0.875rem;
   font-weight: 600;
   white-space: nowrap;
-  cursor: not-allowed;
+  cursor: ${props => props.disabled ? 'not-allowed' : 'pointer'};
+  
+  &:hover {
+    background: ${props => props.disabled ? '#ffa726' : '#fb8c00'};
+  }
 `;
 
 const RejectedButton = styled.button`
@@ -751,6 +816,53 @@ const UserCardEmail = styled.div`
   font-size: 0.875rem;
   color: #888;
   margin-top: 2px;
+`;
+
+const ActionButtonGroup = styled.div`
+  display: flex;
+  gap: 8px;
+`;
+
+const AcceptButton = styled.button`
+  background: #4caf50;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+  
+  &:hover {
+    background: #43a047;
+  }
+  
+  &:disabled {
+    background: #aaa;
+    cursor: not-allowed;
+  }
+`;
+
+const RejectButton = styled.button`
+  background: #f44336;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+  
+  &:hover {
+    background: #e53935;
+  }
+  
+  &:disabled {
+    background: #aaa;
+    cursor: not-allowed;
+  }
 `;
 
 export default AddFriend; 

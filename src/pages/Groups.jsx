@@ -5,113 +5,242 @@ import { supabase } from '../utils/supabaseClient';
 
 const Groups = () => {
   const navigate = useNavigate();
-  const [user, setUser] = useState({ 
+  const [user, setUser] = useState({
+    id: null,
     name: 'User',
     avatar: 'https://via.placeholder.com/40'
   });
   const [groups, setGroups] = useState([]);
+  const [filteredGroups, setFilteredGroups] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isLoading, setIsLoading] = useState(true);
-
-  // Sample groups data (removed recentActivity)
-  const sampleGroups = [
-    {
-      id: 1,
-      name: 'Weekend Adventurers',
-      description: 'A group for planning weekend hikes, camping trips, and outdoor activities.',
-      members: 8,
-      memberAvatars: ['A', 'S', 'J', 'T'],
-      lastActive: '2 hours ago'
-    },
-    {
-      id: 2,
-      name: 'Coffee Enthusiasts',
-      description: 'For those who appreciate quality coffee and cafe culture.',
-      members: 5,
-      memberAvatars: ['J', 'S', 'A'],
-      lastActive: 'Just now'
-    },
-    {
-      id: 3,
-      name: 'Movie Night Crew',
-      description: 'We meet up for regular movie nights, both at theaters and home screenings.',
-      members: 12,
-      memberAvatars: ['T', 'J', 'A', 'S'],
-      lastActive: '1 day ago'
-    },
-    {
-      id: 4,
-      name: 'Foodies Unite',
-      description: 'Exploring new restaurants and food experiences around the city.',
-      members: 7,
-      memberAvatars: ['S', 'A', 'J'],
-      lastActive: '5 hours ago'
-    }
-  ];
+  const [showUserMenu, setShowUserMenu] = useState(false);
 
   // Load user data and groups on component mount
   useEffect(() => {
-    const loadUserData = async () => {
-      // Get session data from Supabase
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      if (session && session.user) {
-        const { user: authUser } = session;
+    const fetchUserAndGroups = async () => {
+      try {
+        // Get current user from Supabase auth
+        const { data: { user: authUser } } = await supabase.auth.getUser();
         
-        // Set user data from Supabase auth
-        setUser({
-          name: authUser.user_metadata?.full_name || 'User',
-          avatar: authUser.user_metadata?.avatar_url || 'https://via.placeholder.com/40'
-        });
-      } else {
-        // Fallback to localStorage
-        const savedUserData = localStorage.getItem('userData');
-        if (savedUserData) {
-          const parsedData = JSON.parse(savedUserData);
-          setUser(prevUser => ({
-            ...prevUser,
-            name: parsedData.name || 'User',
-            avatar: parsedData.avatar_url || 'https://via.placeholder.com/40'
-          }));
+        if (!authUser) {
+          console.log("No authenticated user found");
+          navigate('/login');
+          return;
         }
+        
+        // Get user profile
+        const { data: profileData, error: profileError } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', authUser.id)
+          .single();
+        
+        if (profileError) {
+          console.error('Error fetching profile:', profileError);
+        } else if (profileData) {
+          setUser({
+            id: authUser.id,
+            name: profileData.name || authUser.email?.split('@')[0] || 'User',
+            avatar: profileData.avatar_url || 'https://via.placeholder.com/40'
+          });
+        }
+        
+        // Fetch user's groups
+        await fetchUserGroups(authUser.id);
+      } catch (err) {
+        console.error('Error loading user data:', err);
+        setIsLoading(false);
+      }
+    };
+    
+    fetchUserAndGroups();
+  }, [navigate]);
+
+  // Function to fetch user's groups from Supabase
+  const fetchUserGroups = async (userId) => {
+    try {
+      setIsLoading(true);
+      console.log('Fetching groups for user:', userId);
+      
+      // Using a different query approach that's more direct
+      const { data: memberships, error: membershipError } = await supabase
+        .from('group_members')
+        .select('group_id')
+        .eq('user_id', userId);
+      
+      if (membershipError) {
+        console.error('Error fetching group memberships:', membershipError);
+        throw membershipError;
       }
       
-      // Simulate API loading delay
-      setTimeout(() => {
-        setGroups(sampleGroups);
+      console.log('Group memberships found:', memberships);
+      
+      if (!memberships || memberships.length === 0) {
+        console.log('No group memberships found');
+        setGroups([]);
+        setFilteredGroups([]);
         setIsLoading(false);
-      }, 800);
-    };
-
-    loadUserData();
-  }, []);
+        return;
+      }
+      
+      // Get group IDs the user is a member of
+      const groupIds = memberships.map(m => m.group_id);
+      console.log('Group IDs:', groupIds);
+      
+      // Fetch the actual groups
+      const { data: groupsData, error: groupsError } = await supabase
+        .from('groups')
+        .select('*')
+        .in('id', groupIds);
+      
+      if (groupsError) {
+        console.error('Error fetching groups:', groupsError);
+        throw groupsError;
+      }
+      
+      console.log('Groups data:', groupsData);
+      
+      // Process each group to get additional details
+      const groupsWithDetails = await Promise.all(groupsData.map(async (group) => {
+        try {
+          // Get member count
+          const { count: memberCount, error: countError } = await supabase
+            .from('group_members')
+            .select('id', { count: 'exact', head: true })
+            .eq('group_id', group.id);
+          
+          if (countError) {
+            console.error(`Error getting member count for group ${group.id}:`, countError);
+            throw countError;
+          }
+          
+          // Get member profiles (limit to 5 for display)
+          const { data: memberData, error: membersError } = await supabase
+            .from('group_members')
+            .select('user_id')
+            .eq('group_id', group.id)
+            .limit(5);
+          
+          if (membersError) {
+            console.error(`Error getting members for group ${group.id}:`, membersError);
+            throw membersError;
+          }
+          
+          // Get profiles for these members
+          const memberIds = memberData.map(m => m.user_id);
+          const { data: profilesData, error: profilesError } = await supabase
+            .from('profiles')
+            .select('id, name, avatar_url')
+            .in('id', memberIds);
+          
+          if (profilesError) {
+            console.error(`Error getting member profiles for group ${group.id}:`, profilesError);
+            throw profilesError;
+          }
+          
+          // Format member avatars
+          const memberAvatars = profilesData.map(profile => {
+            return profile.avatar_url || profile.name?.charAt(0) || '?';
+          });
+          
+          // Calculate last active time (for now, using created_at)
+          const lastActive = new Date(group.created_at);
+          const now = new Date();
+          const diffInDays = Math.floor((now - lastActive) / (1000 * 60 * 60 * 24));
+          
+          let lastActiveText;
+          if (diffInDays === 0) {
+            lastActiveText = 'today';
+          } else if (diffInDays === 1) {
+            lastActiveText = 'yesterday';
+          } else if (diffInDays < 7) {
+            lastActiveText = `${diffInDays} days ago`;
+          } else if (diffInDays < 30) {
+            const weeks = Math.floor(diffInDays / 7);
+            lastActiveText = `${weeks} ${weeks === 1 ? 'week' : 'weeks'} ago`;
+          } else {
+            const months = Math.floor(diffInDays / 30);
+            lastActiveText = `${months} ${months === 1 ? 'month' : 'months'} ago`;
+          }
+          
+          return {
+            id: group.id,
+            name: group.name,
+            description: group.description || 'No description provided.',
+            members: memberCount || memberData.length,
+            memberAvatars: memberAvatars,
+            lastActive: lastActiveText,
+            createdBy: group.created_by
+          };
+        } catch (error) {
+          console.error(`Error processing group ${group.id}:`, error);
+          return {
+            id: group.id,
+            name: group.name,
+            description: group.description || 'No description provided.',
+            members: 0,
+            memberAvatars: [],
+            lastActive: 'recently',
+            createdBy: group.created_by
+          };
+        }
+      }));
+      
+      console.log('Processed groups with details:', groupsWithDetails);
+      
+      setGroups(groupsWithDetails);
+      setFilteredGroups(groupsWithDetails);
+    } catch (error) {
+      console.error('Error fetching groups:', error);
+      setGroups([]);
+      setFilteredGroups([]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   // Handle search input change
   const handleSearchChange = (e) => {
-    setSearchTerm(e.target.value);
+    const term = e.target.value;
+    setSearchTerm(term);
+    
+    if (term.trim() === '') {
+      setFilteredGroups(groups);
+    } else {
+      const filtered = groups.filter(group => 
+        group.name.toLowerCase().includes(term.toLowerCase()) ||
+        group.description.toLowerCase().includes(term.toLowerCase())
+      );
+      setFilteredGroups(filtered);
+    }
   };
 
-  // Filter groups based on search term
-  const filteredGroups = groups.filter(group => 
-    group.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    group.description.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
-  // Navigate to different pages
+  // Handle page navigation
   const handleNavigate = (path) => {
     navigate(path);
   };
 
-  // Navigate to create group page
+  // Handle creating a new group
   const handleCreateGroup = () => {
     navigate('/create-group');
   };
 
-  // Handle viewing a group (in a real app, this would navigate to a group detail page)
+  // Handle view group
   const handleViewGroup = (groupId) => {
-    console.log('Viewing group details for:', groupId);
-    // This would navigate to a group detail page in a full implementation
+    // Will implement later
+    alert(`View group with ID: ${groupId}`);
     // navigate(`/groups/${groupId}`);
+  };
+
+  // Handle sign out
+  const handleSignOut = async () => {
+    try {
+      await supabase.auth.signOut();
+      navigate('/login');
+    } catch (error) {
+      console.error('Error signing out:', error);
+    }
   };
 
   return (
@@ -126,8 +255,21 @@ const Groups = () => {
         </Navigation>
         <UserSection>
           <UserName>{user.name}</UserName>
-          <UserAvatar>
-            <img src={user.avatar} alt="User avatar" />
+          <UserAvatar onClick={() => setShowUserMenu(!showUserMenu)}>
+            {typeof user.avatar === 'string' && user.avatar.startsWith('http') ? (
+              <img src={user.avatar} alt="User avatar" />
+            ) : (
+              <AvatarPlaceholder>{user.name.charAt(0)}</AvatarPlaceholder>
+            )}
+            
+            {showUserMenu && (
+              <UserMenu>
+                <UserMenuItem>Profile</UserMenuItem>
+                <UserMenuItem>Settings</UserMenuItem>
+                <UserMenuDivider />
+                <UserMenuItem onClick={handleSignOut}>Sign Out</UserMenuItem>
+              </UserMenu>
+            )}
           </UserAvatar>
         </UserSection>
       </Header>
@@ -188,11 +330,15 @@ const Groups = () => {
                   <MemberAvatars>
                     {group.memberAvatars.map((avatar, index) => (
                       <MemberAvatar key={index} index={index}>
-                        <img src={`https://via.placeholder.com/30?text=${avatar}`} alt="Member" />
+                        {typeof avatar === 'string' && avatar.startsWith('http') ? (
+                          <img src={avatar} alt="Member" />
+                        ) : (
+                          <AvatarText>{avatar}</AvatarText>
+                        )}
                       </MemberAvatar>
                     ))}
-                    {group.members > 4 && (
-                      <MoreMembers>+{group.members - 4}</MoreMembers>
+                    {group.members > 5 && (
+                      <MoreMembers>+{group.members - 5}</MoreMembers>
                     )}
                   </MemberAvatars>
                   <ViewGroupButton onClick={() => handleViewGroup(group.id)}>
@@ -603,6 +749,58 @@ const CreateGroupButton = styled.button`
     transform: translateY(-2px);
     box-shadow: 0 5px 15px rgba(110, 142, 251, 0.3);
   }
+`;
+
+const AvatarPlaceholder = styled.div`
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(to right, #6e8efb, #a777e3);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+  font-weight: bold;
+`;
+
+const AvatarText = styled.div`
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(to right, #6e8efb, #a777e3);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: bold;
+`;
+
+const UserMenu = styled.div`
+  position: absolute;
+  top: 45px;
+  right: 0;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+  width: 150px;
+  z-index: 1000;
+  overflow: hidden;
+`;
+
+const UserMenuItem = styled.div`
+  padding: 12px 15px;
+  cursor: pointer;
+  transition: background 0.2s;
+  
+  &:hover {
+    background: #f5f7fa;
+  }
+`;
+
+const UserMenuDivider = styled.div`
+  height: 1px;
+  background: #e1e4e8;
+  margin: 5px 0;
 `;
 
 export default Groups; 

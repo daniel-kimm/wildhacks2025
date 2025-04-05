@@ -11,7 +11,7 @@ const Dashboard = () => {
   const [user, setUser] = useState({
     id: null,
     name: 'User',
-    avatar: 'https://via.placeholder.com/40'
+    avatar: null
   });
 
   // Sample data - would come from API in a real application
@@ -23,58 +23,57 @@ const Dashboard = () => {
   ]);
 
   const [friends, setFriends] = useState([]);
+  const [groups, setGroups] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [groups, setGroups] = useState([
-    { id: 1, name: 'Weekend Adventurers', members: 5 },
-    { id: 2, name: 'Coffee Enthusiasts', members: 3 },
-  ]);
-
   const [showUserMenu, setShowUserMenu] = useState(false);
 
   // Load user data and friends on component mount
   useEffect(() => {
-    const loadUserData = async () => {
+    const fetchUserData = async () => {
       try {
-        setIsLoading(true);
+        const { data: { user: authUser } } = await supabase.auth.getUser();
         
-        // Get session data from Supabase
-        const { data: { session } } = await supabase.auth.getSession();
-        
-        if (session && session.user) {
-          const { user: authUser } = session;
-          
-          // Get the user's profile from the profiles table
-          const { data: profileData, error: profileError } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', authUser.id)
-            .single();
-          
-          if (profileError) {
-            console.error('Error fetching profile:', profileError);
-          } else if (profileData) {
-            setUser({
-              id: authUser.id,
-              name: profileData.name || authUser.user_metadata?.full_name || 'User',
-              avatar: profileData.avatar_url || authUser.user_metadata?.avatar_url || 'https://via.placeholder.com/40'
-            });
-            
-            // Load friends after setting user
-            await loadFriends(authUser.id);
-          }
+        if (!authUser) {
+          navigate('/login');
+          return;
         }
-      } catch (err) {
-        console.error('Error loading user data:', err);
+        
+        // Fetch user profile
+        const { data: profile, error: profileError } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', authUser.id)
+          .single();
+          
+        if (profileError) throw profileError;
+        
+        setUser({
+          id: authUser.id,
+          name: profile.name || authUser.email?.split('@')[0] || 'User',
+          avatar: profile.avatar_url
+        });
+        
+        // Fetch recommendations - keeping existing sample data for now
+        // ...
+        
+        // Fetch friends
+        await fetchFriends(authUser.id);
+        
+        // Fetch groups
+        await fetchGroups(authUser.id);
+        
+      } catch (error) {
+        console.error('Error fetching user data:', error);
       } finally {
         setIsLoading(false);
       }
     };
     
-    loadUserData();
-  }, []);
+    fetchUserData();
+  }, [navigate]);
   
   // Function to load friends from Supabase
-  const loadFriends = async (userId) => {
+  const fetchFriends = async (userId) => {
     try {
       console.log('Loading friends for user:', userId);
       
@@ -127,6 +126,82 @@ const Dashboard = () => {
     } catch (error) {
       console.error('Error loading friends:', error.message);
       setFriends([]);
+    }
+  };
+
+  // Add the fetchGroups function
+  const fetchGroups = async (userId) => {
+    try {
+      console.log('Fetching groups for dashboard:', userId);
+      
+      // Get group memberships
+      const { data: memberships, error: membershipError } = await supabase
+        .from('group_members')
+        .select('group_id')
+        .eq('user_id', userId);
+      
+      if (membershipError) {
+        console.error('Error fetching group memberships:', membershipError);
+        return;
+      }
+      
+      console.log('Group memberships found:', memberships);
+      
+      if (!memberships || memberships.length === 0) {
+        setGroups([]);
+        return;
+      }
+      
+      // Get group IDs
+      const groupIds = memberships.map(m => m.group_id);
+      
+      // Fetch the groups
+      const { data: groupsData, error: groupsError } = await supabase
+        .from('groups')
+        .select('*')
+        .in('id', groupIds)
+        .order('created_at', { ascending: false })
+        .limit(5);  // Limit to 5 most recent groups for dashboard
+      
+      if (groupsError) {
+        console.error('Error fetching groups data:', groupsError);
+        return;
+      }
+      
+      console.log('Groups retrieved:', groupsData);
+      
+      // Process groups data to include member count
+      const processedGroups = await Promise.all(groupsData.map(async (group) => {
+        try {
+          // Get member count
+          const { count, error: countError } = await supabase
+            .from('group_members')
+            .select('id', { count: 'exact', head: true })
+            .eq('group_id', group.id);
+          
+          if (countError) throw countError;
+          
+          return {
+            id: group.id,
+            name: group.name,
+            description: group.description,
+            members: count || 0
+          };
+        } catch (error) {
+          console.error(`Error processing group ${group.id}:`, error);
+          return {
+            id: group.id,
+            name: group.name,
+            description: group.description,
+            members: 0
+          };
+        }
+      }));
+      
+      setGroups(processedGroups);
+    } catch (error) {
+      console.error('Error in fetchGroups:', error);
+      setGroups([]);
     }
   };
 
@@ -263,10 +338,12 @@ const Dashboard = () => {
                 Create Group
               </AddButton>
             </SectionHeader>
-            {groups.length > 0 ? (
+            {isLoading ? (
+              <LoadingIndicator>Loading groups...</LoadingIndicator>
+            ) : groups.length > 0 ? (
               <GroupsList>
                 {groups.map(group => (
-                  <GroupCard key={group.id}>
+                  <GroupCard key={group.id} onClick={() => navigate(`/groups/${group.id}`)}>
                     <GroupAvatar>
                       <img src={`https://via.placeholder.com/50?text=${group.name.charAt(0)}`} alt={group.name} />
                     </GroupAvatar>

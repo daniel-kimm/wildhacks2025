@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
+import { supabase } from '../utils/supabaseClient';
 
 const CreateGroup = () => {
   const navigate = useNavigate();
-  const [user, setUser] = useState({ name: 'User' });
+  const [user, setUser] = useState({ id: null, name: 'User' });
   const [groupName, setGroupName] = useState('');
   const [groupDescription, setGroupDescription] = useState('');
   const [nameError, setNameError] = useState('');
@@ -12,29 +13,100 @@ const CreateGroup = () => {
   const [selectedFriends, setSelectedFriends] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Sample friends data - would come from API in a real application
-  const sampleFriends = [
-    { id: 1, name: 'Alex Johnson', interests: ['coffee', 'hiking', 'movies'], avatar: 'A' },
-    { id: 2, name: 'Sam Carter', interests: ['art', 'museums', 'photography'], avatar: 'S' },
-    { id: 3, name: 'Jamie Smith', interests: ['books', 'coffee', 'music'], avatar: 'J' },
-    { id: 4, name: 'Taylor Williams', interests: ['hiking', 'camping', 'travel'], avatar: 'T' },
-    { id: 5, name: 'Jordan Lee', interests: ['gaming', 'technology', 'movies'], avatar: 'J' },
-  ];
-
-  // Load user data from localStorage on component mount
+  // Load user data and fetch real friends from Supabase
   useEffect(() => {
-    const savedUserData = localStorage.getItem('userData');
-    if (savedUserData) {
-      const parsedData = JSON.parse(savedUserData);
-      setUser(prevUser => ({
-        ...prevUser,
-        name: parsedData.name
+    const loadUserData = async () => {
+      try {
+        // Get current user from Supabase auth
+        const { data: { user: authUser } } = await supabase.auth.getUser();
+        
+        if (!authUser) {
+          console.log("No authenticated user found");
+          navigate('/login');
+          return;
+        }
+        
+        // Get user profile
+        const { data: profileData, error: profileError } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', authUser.id)
+          .single();
+        
+        if (profileError) {
+          console.error('Error fetching profile:', profileError);
+        } else if (profileData) {
+          setUser({
+            id: authUser.id,
+            name: profileData.name || authUser.email?.split('@')[0] || 'User'
+          });
+        }
+        
+        // Fetch actual friends
+        await fetchFriends(authUser.id);
+      } catch (err) {
+        console.error('Error loading user data:', err);
+      }
+    };
+    
+    loadUserData();
+  }, [navigate]);
+  
+  // Function to fetch friends from Supabase
+  const fetchFriends = async (userId) => {
+    try {
+      console.log('Fetching friends for user:', userId);
+      
+      // Get friend relationships
+      const { data: friendRelations, error: friendError } = await supabase
+        .from('friends')
+        .select('friend_id')
+        .eq('user_id', userId);
+      
+      if (friendError) {
+        console.error('Error fetching friends:', friendError);
+        return;
+      }
+      
+      console.log('Friend relations found:', friendRelations?.length || 0);
+      
+      if (!friendRelations || friendRelations.length === 0) {
+        setFriends([]);
+        return;
+      }
+      
+      // Get friend IDs
+      const friendIds = friendRelations.map(rel => rel.friend_id);
+      
+      // Get friend profiles
+      const { data: friendProfiles, error: profilesError } = await supabase
+        .from('profiles')
+        .select('*')
+        .in('id', friendIds);
+      
+      if (profilesError) {
+        console.error('Error fetching friend profiles:', profilesError);
+        return;
+      }
+      
+      console.log('Friend profiles found:', friendProfiles?.length || 0);
+      
+      // Format friend data
+      const formattedFriends = friendProfiles.map(profile => ({
+        id: profile.id,
+        name: profile.name || profile.email?.split('@')[0] || 'Unnamed User',
+        interests: profile.interests ? (typeof profile.interests === 'string' ? 
+          profile.interests.split(',').map(i => i.trim()) : 
+          Array.isArray(profile.interests) ? profile.interests : []) : [],
+        avatar: profile.avatar_url ? profile.avatar_url : (profile.name ? profile.name.charAt(0) : 'U')
       }));
+      
+      setFriends(formattedFriends);
+    } catch (error) {
+      console.error('Error loading friends:', error.message);
+      setFriends([]);
     }
-
-    // In a real app, fetch friends from API
-    setFriends(sampleFriends);
-  }, []);
+  };
 
   // Handle group name change
   const handleGroupNameChange = (e) => {
@@ -60,8 +132,8 @@ const CreateGroup = () => {
     });
   };
 
-  // Handle group creation
-  const handleCreateGroup = (e) => {
+  // Handle group creation - updated to save to Supabase
+  const handleCreateGroup = async (e) => {
     e.preventDefault();
     
     // Validate group name
@@ -72,24 +144,67 @@ const CreateGroup = () => {
     
     setIsLoading(true);
     
-    // Simulate API call to create group
-    setTimeout(() => {
-      const newGroup = {
-        id: Date.now(),
-        name: groupName,
-        description: groupDescription,
-        members: selectedFriends.length + 1, // +1 for the current user
-        memberIds: [...selectedFriends]
-      };
+    try {
+      // Create the group in Supabase
+      const { data: newGroup, error: groupError } = await supabase
+        .from('groups')
+        .insert({
+          name: groupName,
+          description: groupDescription,
+          created_by: user.id
+        })
+        .select()
+        .single();
       
-      console.log('Creating new group:', newGroup);
+      if (groupError) {
+        throw groupError;
+      }
       
-      // In a real app, you would store this in your backend
+      console.log('Created new group:', newGroup);
       
-      setIsLoading(false);
+      // Add only the creator as a direct member
+      const { error: memberError } = await supabase
+        .from('group_members')
+        .insert({ 
+          group_id: newGroup.id, 
+          user_id: user.id, 
+          role: 'admin' 
+        });
+      
+      if (memberError) {
+        console.error('Error adding creator as member:', memberError);
+        throw memberError;
+      }
+      
+      // Send invitations to selected friends instead of adding them directly
+      if (selectedFriends.length > 0) {
+        const invitations = selectedFriends.map(friendId => ({
+          group_id: newGroup.id,
+          sender_id: user.id,
+          recipient_id: friendId,
+          status: 'pending'
+        }));
+        
+        const { error: invitationError } = await supabase
+          .from('group_invitations')
+          .insert(invitations);
+        
+        if (invitationError) {
+          console.error('Error sending group invitations:', invitationError);
+          throw invitationError;
+        }
+        
+        console.log('Sent group invitations to:', selectedFriends.length, 'friends');
+      }
+      
       // Navigate back to dashboard
       navigate('/dashboard');
-    }, 1500);
+    } catch (error) {
+      console.error('Error creating group:', error);
+      alert(`Failed to create group: ${error.message}`);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   // Go back to dashboard
@@ -155,12 +270,18 @@ const CreateGroup = () => {
                     onClick={() => toggleFriendSelection(friend.id)}
                   >
                     <FriendCardAvatar>
-                      <img src={`https://via.placeholder.com/50?text=${friend.avatar}`} alt={friend.name} />
+                      {typeof friend.avatar === 'string' && friend.avatar.startsWith('http') ? (
+                        <img src={friend.avatar} alt={friend.name} />
+                      ) : (
+                        <AvatarPlaceholder>{friend.avatar}</AvatarPlaceholder>
+                      )}
                     </FriendCardAvatar>
                     <FriendCardInfo>
                       <FriendCardName>{friend.name}</FriendCardName>
                       <FriendCardInterests>
-                        {friend.interests.join(', ')}
+                        {friend.interests && friend.interests.length > 0 
+                          ? friend.interests.join(', ') 
+                          : 'No interests added'}
                       </FriendCardInterests>
                     </FriendCardInfo>
                     <SelectionIndicator selected={selectedFriends.includes(friend.id)}>
@@ -182,6 +303,19 @@ const CreateGroup = () => {
     </PageContainer>
   );
 };
+
+// Add this new styled component
+const AvatarPlaceholder = styled.div`
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(to right, #6e8efb, #a777e3);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+  font-weight: bold;
+`;
 
 // Styled Components
 const PageContainer = styled.div`

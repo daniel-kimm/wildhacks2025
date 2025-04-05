@@ -7,6 +7,9 @@ const NotificationInbox = () => {
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(false);
   const [notificationCount, setNotificationCount] = useState(0);
+  const [groupInvites, setGroupInvites] = useState([]);
+  const [acceptingInvite, setAcceptingInvite] = useState(null);
+  const [rejectingInvite, setRejectingInvite] = useState(null);
   const dropdownRef = useRef(null);
 
   // Fetch friend requests on component mount
@@ -69,50 +72,63 @@ const NotificationInbox = () => {
       
       console.log("Fetching friend requests for user:", user.id);
       
-      // First, check if table exists and has the right structure
-      const { data: tableInfo, error: tableError } = await supabase
+      // Step 1: Get pending friend requests directly without join
+      const { data: rawRequests, error: requestError } = await supabase
         .from('friend_requests')
         .select('*')
-        .limit(1);
-        
-      if (tableError) {
-        console.error('Error checking friend_requests table:', tableError);
-      } else {
-        console.log('Friend requests table check:', tableInfo);
-      }
-      
-      // Get pending friend requests with detailed logging
-      const { data, error } = await supabase
-        .from('friend_requests')
-        .select(`
-          id,
-          sender_id,
-          status,
-          created_at,
-          sender:profiles(id, name, avatar_url)
-        `)
         .eq('recipient_id', user.id)
         .eq('status', 'pending');
       
-      if (error) {
-        console.error('Error fetching friend requests:', error);
-        throw error;
+      if (requestError) {
+        console.error('Error fetching friend requests:', requestError);
+        throw requestError;
       }
       
-      console.log("Friend requests raw data:", data);
+      console.log("Raw friend requests found:", rawRequests?.length || 0, rawRequests);
       
-      // Map the data to ensure it has the expected structure
-      const formattedRequests = data?.map(request => ({
-        id: request.id,
-        sender_id: request.sender_id,
-        status: request.status,
-        created_at: request.created_at,
-        sender: {
-          id: request.sender?.id || request.sender_id,
-          name: request.sender?.name || 'Unknown User',
-          avatar_url: request.sender?.avatar_url || null
-        }
-      })) || [];
+      if (!rawRequests || rawRequests.length === 0) {
+        setRequests([]);
+        setNotificationCount(0);
+        setLoading(false);
+        return;
+      }
+      
+      // Step 2: Get sender profiles in a separate query
+      const senderIds = rawRequests.map(req => req.sender_id);
+      const { data: senderProfiles, error: profileError } = await supabase
+        .from('profiles')
+        .select('id, name, avatar_url')
+        .in('id', senderIds);
+      
+      if (profileError) {
+        console.error('Error fetching sender profiles:', profileError);
+      }
+      
+      console.log("Sender profiles found:", senderProfiles?.length || 0, senderProfiles);
+      
+      // Step 3: Create a map of profile data for easy lookup
+      const profileMap = {};
+      if (senderProfiles) {
+        senderProfiles.forEach(profile => {
+          profileMap[profile.id] = profile;
+        });
+      }
+      
+      // Step 4: Combine the data
+      const formattedRequests = rawRequests.map(request => {
+        const senderProfile = profileMap[request.sender_id] || {};
+        return {
+          id: request.id,
+          sender_id: request.sender_id,
+          status: request.status,
+          created_at: request.created_at,
+          sender: {
+            id: request.sender_id,
+            name: senderProfile.name || 'Unknown User',
+            avatar_url: senderProfile.avatar_url || null
+          }
+        };
+      });
       
       console.log("Formatted friend requests:", formattedRequests);
       
@@ -199,10 +215,179 @@ const NotificationInbox = () => {
     }
   };
 
+  // Add a new function to fetch group invitations
+  const fetchGroupInvitations = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        console.log("No authenticated user found");
+        return;
+      }
+      
+      console.log("Fetching group invitations for user:", user.id);
+      
+      // Get pending group invitations
+      const { data: rawInvites, error: invitesError } = await supabase
+        .from('group_invitations')
+        .select('*')
+        .eq('recipient_id', user.id)
+        .eq('status', 'pending');
+      
+      if (invitesError) {
+        console.error('Error fetching group invitations:', invitesError);
+        throw invitesError;
+      }
+      
+      console.log("Raw group invitations found:", rawInvites?.length || 0, rawInvites);
+      
+      if (!rawInvites || rawInvites.length === 0) {
+        setGroupInvites([]);
+        return;
+      }
+      
+      // Get group details for each invitation
+      const groupIds = rawInvites.map(invite => invite.group_id);
+      const { data: groupsData, error: groupsError } = await supabase
+        .from('groups')
+        .select('*')
+        .in('id', groupIds);
+      
+      if (groupsError) {
+        console.error('Error fetching group details:', groupsError);
+        throw groupsError;
+      }
+      
+      // Get sender profiles
+      const senderIds = rawInvites.map(invite => invite.sender_id);
+      const { data: senderProfiles, error: profilesError } = await supabase
+        .from('profiles')
+        .select('*')
+        .in('id', senderIds);
+      
+      if (profilesError) {
+        console.error('Error fetching sender profiles:', profilesError);
+        throw profilesError;
+      }
+      
+      // Create maps for easy lookup
+      const groupMap = {};
+      groupsData.forEach(group => {
+        groupMap[group.id] = group;
+      });
+      
+      const profileMap = {};
+      senderProfiles.forEach(profile => {
+        profileMap[profile.id] = profile;
+      });
+      
+      // Format the invitations
+      const formattedInvites = rawInvites.map(invite => {
+        const group = groupMap[invite.group_id] || {};
+        const senderProfile = profileMap[invite.sender_id] || {};
+        
+        return {
+          id: invite.id,
+          group_id: invite.group_id,
+          sender_id: invite.sender_id,
+          status: invite.status,
+          created_at: invite.created_at,
+          group: {
+            id: group.id,
+            name: group.name || 'Unknown Group',
+            description: group.description || ''
+          },
+          sender: {
+            id: invite.sender_id,
+            name: senderProfile.name || 'Unknown User',
+            avatar_url: senderProfile.avatar_url || null
+          }
+        };
+      });
+      
+      console.log("Formatted group invitations:", formattedInvites);
+      setGroupInvites(formattedInvites);
+      
+      // Update total count
+      setNotificationCount(prev => requests.length + formattedInvites.length);
+      
+    } catch (error) {
+      console.error('Error fetching group invitations:', error);
+      setGroupInvites([]);
+    }
+  };
+
+  // Add functions to handle group invitation responses
+  const handleAcceptGroupInvite = async (inviteId, groupId) => {
+    try {
+      setAcceptingInvite(inviteId);
+      
+      // Update invitation status
+      const { error: updateError } = await supabase
+        .from('group_invitations')
+        .update({ status: 'accepted', updated_at: new Date() })
+        .eq('id', inviteId);
+      
+      if (updateError) throw updateError;
+      
+      // Add user to group members
+      const { data: { user } } = await supabase.auth.getUser();
+      const { error: memberError } = await supabase
+        .from('group_members')
+        .insert({
+          group_id: groupId,
+          user_id: user.id,
+          role: 'member'
+        });
+      
+      if (memberError) throw memberError;
+      
+      // Update local state
+      setGroupInvites(prev => prev.filter(invite => invite.id !== inviteId));
+      setNotificationCount(prev => prev - 1);
+      
+      alert('You have joined the group!');
+    } catch (error) {
+      console.error('Error accepting group invitation:', error);
+      alert(`Failed to accept group invitation: ${error.message}`);
+    } finally {
+      setAcceptingInvite(null);
+    }
+  };
+
+  const handleRejectGroupInvite = async (inviteId) => {
+    try {
+      setRejectingInvite(inviteId);
+      
+      // Update invitation status
+      const { error } = await supabase
+        .from('group_invitations')
+        .update({ status: 'rejected', updated_at: new Date() })
+        .eq('id', inviteId);
+      
+      if (error) throw error;
+      
+      // Update local state
+      setGroupInvites(prev => prev.filter(invite => invite.id !== inviteId));
+      setNotificationCount(prev => prev - 1);
+      
+      alert('Group invitation rejected');
+    } catch (error) {
+      console.error('Error rejecting group invitation:', error);
+      alert(`Failed to reject group invitation: ${error.message}`);
+    } finally {
+      setRejectingInvite(null);
+    }
+  };
+
   return (
     <NotificationWrapper ref={dropdownRef}>
       <NotificationIcon onClick={toggleInbox}>
-        <i className="fas fa-bell"></i>
+        <MailIcon>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
+            <polyline points="22,6 12,13 2,6"></polyline>
+          </svg>
+        </MailIcon>
         {notificationCount > 0 && <NotificationBadge>{notificationCount}</NotificationBadge>}
       </NotificationIcon>
       
@@ -213,37 +398,75 @@ const NotificationInbox = () => {
             {loading && <LoadingSpinner />}
           </NotificationHeader>
           
-          {requests.length === 0 ? (
+          {requests.length === 0 && groupInvites.length === 0 ? (
             <EmptyNotification>No pending friend requests</EmptyNotification>
           ) : (
             <NotificationList>
-              {requests.map(request => (
-                <NotificationItem key={request.id}>
-                  <RequestAvatar>
-                    {request.sender?.avatar_url ? (
-                      <img src={request.sender.avatar_url} alt="User avatar" />
-                    ) : (
-                      <AvatarPlaceholder>
-                        {(request.sender?.name || 'U').charAt(0).toUpperCase()}
-                      </AvatarPlaceholder>
-                    )}
-                  </RequestAvatar>
-                  <RequestInfo>
-                    <RequestName>{request.sender?.name || 'Unknown User'}</RequestName>
-                    <RequestTime>
-                      {new Date(request.created_at).toLocaleDateString()}
-                    </RequestTime>
-                  </RequestInfo>
-                  <RequestActions>
-                    <AcceptButton onClick={() => handleAccept(request.id, request.sender_id)}>
-                      Accept
-                    </AcceptButton>
-                    <RejectButton onClick={() => handleReject(request.id)}>
-                      Reject
-                    </RejectButton>
-                  </RequestActions>
-                </NotificationItem>
-              ))}
+              {requests.length > 0 && (
+                <NotificationSection>
+                  <SectionTitle>Friend Requests</SectionTitle>
+                  {requests.map(request => (
+                    <NotificationItem key={request.id}>
+                      <RequestAvatar>
+                        {request.sender?.avatar_url ? (
+                          <img src={request.sender.avatar_url} alt="User avatar" />
+                        ) : (
+                          <AvatarPlaceholder>
+                            {(request.sender?.name || 'U').charAt(0).toUpperCase()}
+                          </AvatarPlaceholder>
+                        )}
+                      </RequestAvatar>
+                      <RequestInfo>
+                        <RequestName>{request.sender?.name || 'Unknown User'}</RequestName>
+                        <RequestTime>
+                          {new Date(request.created_at).toLocaleDateString()}
+                        </RequestTime>
+                      </RequestInfo>
+                      <RequestActions>
+                        <AcceptButton onClick={() => handleAccept(request.id, request.sender_id)}>
+                          Accept
+                        </AcceptButton>
+                        <RejectButton onClick={() => handleReject(request.id)}>
+                          Reject
+                        </RejectButton>
+                      </RequestActions>
+                    </NotificationItem>
+                  ))}
+                </NotificationSection>
+              )}
+              
+              {groupInvites.length > 0 && (
+                <NotificationSection>
+                  <SectionTitle>Group Invitations</SectionTitle>
+                  {groupInvites.map(invite => (
+                    <NotificationItem key={invite.id}>
+                      <RequestAvatar>
+                        <GroupAvatar>{invite.group.name.charAt(0)}</GroupAvatar>
+                      </RequestAvatar>
+                      <RequestInfo>
+                        <RequestName>{invite.sender.name}</RequestName>
+                        <RequestTime>
+                          {new Date(invite.created_at).toLocaleDateString()}
+                        </RequestTime>
+                      </RequestInfo>
+                      <RequestActions>
+                        <AcceptButton 
+                          onClick={() => handleAcceptGroupInvite(invite.id, invite.group_id)}
+                          disabled={acceptingInvite === invite.id || rejectingInvite === invite.id}
+                        >
+                          {acceptingInvite === invite.id ? 'Joining...' : 'Join Group'}
+                        </AcceptButton>
+                        <RejectButton 
+                          onClick={() => handleRejectGroupInvite(invite.id)}
+                          disabled={acceptingInvite === invite.id || rejectingInvite === invite.id}
+                        >
+                          {rejectingInvite === invite.id ? 'Declining...' : 'Decline'}
+                        </RejectButton>
+                      </RequestActions>
+                    </NotificationItem>
+                  ))}
+                </NotificationSection>
+              )}
             </NotificationList>
           )}
         </NotificationDropdown>
@@ -436,6 +659,39 @@ const LoadingSpinner = styled.div`
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
   }
+`;
+
+const MailIcon = styled.div`
+  width: 20px;
+  height: 20px;
+  color: #606770;
+  
+  svg {
+    width: 100%;
+    height: 100%;
+  }
+`;
+
+const GroupAvatar = styled(AvatarPlaceholder)`
+  background: linear-gradient(to right, #6e8efb, #a777e3);
+`;
+
+const NotificationSection = styled.div`
+  margin-bottom: 16px;
+`;
+
+const SectionTitle = styled.h4`
+  font-size: 0.9rem;
+  color: #65676B;
+  margin: 8px 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e4e6eb;
+`;
+
+const RequestDescription = styled.div`
+  font-size: 0.85rem;
+  color: #65676B;
+  margin-top: 4px;
 `;
 
 export default NotificationInbox; 
