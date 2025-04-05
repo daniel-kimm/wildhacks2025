@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../utils/supabaseClient';
+import NotificationInbox from '../components/NotificationInbox';
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -92,6 +93,7 @@ const Dashboard = () => {
           <NavItem onClick={() => handleNavigate('/map')}>Map</NavItem>
         </Navigation>
         <UserSection>
+          <NotificationInbox />
           <UserName>{user.name}</UserName>
           <UserAvatar>
             <img src={user.avatar} alt="User avatar" />

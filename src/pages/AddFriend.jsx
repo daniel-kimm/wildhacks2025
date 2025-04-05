@@ -80,34 +80,6 @@ const AddFriend = () => {
 
       console.log("Fetching profiles for all users except:", currentUserId);
       
-      // First check if profiles table exists and has data
-      const { data: profileCount, error: countError } = await supabase
-        .from('profiles')
-        .select('id', { count: 'exact', head: true });
-      
-      if (countError) {
-        console.error("Error checking profiles table:", countError);
-        setDebugInfo("Error accessing profiles table: " + countError.message);
-        throw countError;
-      }
-      
-      console.log("Total profiles in database:", profileCount?.count || 0);
-      
-      // Get all existing friend connections for the current user
-      const { data: existingFriends, error: friendsError } = await supabase
-        .from('friends')
-        .select('friend_id')
-        .eq('user_id', currentUserId);
-      
-      if (friendsError) {
-        console.error("Error fetching friends:", friendsError);
-        // Don't throw here, just log the error and continue with empty friends list
-      }
-      
-      // Create a Set of friend IDs for easy checking
-      const friendIds = new Set(existingFriends?.map(f => f.friend_id) || []);
-      console.log("Current friend IDs:", Array.from(friendIds));
-      
       // Get all users except the current user
       const { data, error } = await supabase
         .from('profiles')
@@ -130,7 +102,34 @@ const AddFriend = () => {
         return;
       }
       
-      // Format the user data and mark existing friends
+      // Get existing friends
+      const { data: existingFriends, error: friendsError } = await supabase
+        .from('friends')
+        .select('friend_id')
+        .eq('user_id', currentUserId);
+      
+      if (friendsError) {
+        console.error("Error fetching friends:", friendsError);
+      }
+      
+      // Get sent friend requests
+      const { data: sentRequests, error: sentError } = await supabase
+        .from('friend_requests')
+        .select('recipient_id, status')
+        .eq('sender_id', currentUserId);
+      
+      if (sentError) {
+        console.error("Error fetching sent requests:", sentError);
+      }
+      
+      // Create lookup maps for quick checking
+      const friendIds = new Set(existingFriends?.map(f => f.friend_id) || []);
+      const requestMap = (sentRequests || []).reduce((map, req) => {
+        map[req.recipient_id] = req.status;
+        return map;
+      }, {});
+      
+      // Format the user data and mark existing friends & requests
       const formattedUsers = data.map(user => ({
         id: user.id,
         name: user.name || user.email?.split('@')[0] || 'Unnamed User',
@@ -142,18 +141,18 @@ const AddFriend = () => {
         preferences: user.preferences || '',
         avatar: user.avatar_url || (user.name ? user.name.charAt(0) : 'U'),
         email: user.email,
-        isFriend: friendIds.has(user.id)
+        isFriend: friendIds.has(user.id),
+        requestStatus: requestMap[user.id] || null
       }));
       
       console.log("Formatted users:", formattedUsers.length);
       setAllUsers(formattedUsers);
       
-      // If search term is active, update results
       if (searchTerm.trim() !== '') {
         handleSearchChange({ target: { value: searchTerm } });
       }
     } catch (error) {
-      console.error('Error fetching users:', error);
+      console.error('Error fetching users:', error.message);
       setDebugInfo("Error: " + error.message);
     } finally {
       setIsLoading(false);
@@ -173,69 +172,90 @@ const AddFriend = () => {
     // Filter users based on search term
     const filtered = allUsers.filter(user =>
       user.name.toLowerCase().includes(term.toLowerCase()) ||
-      (user.email && user.email.toLowerCase().includes(term.toLowerCase())) ||
-      user.interests.some(interest => 
+      (user.interests && user.interests.some(interest => 
         interest.toLowerCase().includes(term.toLowerCase())
-      )
+      )) ||
+      (user.email && user.email.toLowerCase().includes(term.toLowerCase()))
     );
     
-    console.log(`Search for "${term}" found ${filtered.length} results`);
     setSearchResults(filtered);
   };
 
-  // Handle adding a friend
-  const handleAddFriend = async (friendId) => {
+  // Handle sending a friend request
+  const handleSendRequest = async (recipientId) => {
     try {
-      // Set loading state for this specific friend
-      setLoadingStates(prev => ({ ...prev, [friendId]: true }));
+      // Set loading state for this specific user
+      setLoadingStates(prev => ({ ...prev, [recipientId]: true }));
       
       // Get current user ID
       const { data: { session } } = await supabase.auth.getSession();
       const currentUserId = session?.user?.id;
       
       if (!currentUserId) {
-        throw new Error('No authenticated user found');
+        throw new Error('You must be logged in to send friend requests');
       }
       
-      console.log("Adding friend relationship:", currentUserId, "->", friendId);
-      
-      // Add friend relationship in the friends table
+      // Send friend request
       const { error } = await supabase
-        .from('friends')
+        .from('friend_requests')
         .insert([
-          { user_id: currentUserId, friend_id: friendId }
+          { 
+            sender_id: currentUserId, 
+            recipient_id: recipientId,
+            status: 'pending'
+          }
         ]);
       
-      if (error) {
-        console.error("Error inserting friend relationship:", error);
-        throw error;
-      }
+      if (error) throw error;
       
-      // Update the local state to mark this user as a friend
+      // Update the local state to mark this user as having a pending request
       setAllUsers(prev => 
         prev.map(user => 
-          user.id === friendId ? { ...user, isFriend: true } : user
+          user.id === recipientId ? { ...user, requestStatus: 'pending' } : user
         )
       );
       
       setSearchResults(prev => 
         prev.map(user => 
-          user.id === friendId ? { ...user, isFriend: true } : user
+          user.id === recipientId ? { ...user, requestStatus: 'pending' } : user
         )
       );
       
-      alert('Friend added successfully!');
+      alert('Friend request sent!');
     } catch (error) {
-      console.error('Error adding friend:', error.message);
-      alert('Failed to add friend. Please try again.');
+      console.error('Error sending friend request:', error.message);
+      alert('Failed to send friend request. Please try again.');
     } finally {
-      // Clear loading state for this friend
-      setLoadingStates(prev => ({ ...prev, [friendId]: false }));
+      // Clear loading state for this user
+      setLoadingStates(prev => ({ ...prev, [recipientId]: false }));
     }
   };
 
   // Display all users if no search is active
   const displayResults = searchTerm.trim() === '' ? allUsers : searchResults;
+
+  // Function to render the correct button based on status
+  const renderActionButton = (user) => {
+    if (user.isFriend) {
+      return <FriendAddedButton disabled>Already Friends</FriendAddedButton>;
+    }
+    
+    switch(user.requestStatus) {
+      case 'pending':
+        return <PendingButton disabled>Request Sent</PendingButton>;
+      case 'rejected':
+        return <RejectedButton disabled>Request Denied</RejectedButton>;
+      default:
+        return (
+          <SendRequestButton 
+            onClick={() => handleSendRequest(user.id)}
+            disabled={loadingStates[user.id]}
+          >
+            {loadingStates[user.id] ? 'Sending...' : 'Send Request'}
+          </SendRequestButton>
+        );
+    }
+  };
 
   return (
     <PageContainer>
@@ -255,7 +275,7 @@ const AddFriend = () => {
       <ContentContainer>
         <PageTitle>Add New Friends</PageTitle>
         <PageDescription>
-          Search for people by name or interests to connect with them.
+          Search for people and send them friend requests.
         </PageDescription>
 
         <SearchContainer>
@@ -306,18 +326,7 @@ const AddFriend = () => {
                   )}
                   {result.email && <UserCardEmail>{result.email}</UserCardEmail>}
                 </UserCardInfo>
-                {result.isFriend ? (
-                  <FriendAddedButton disabled>
-                    Already Friends
-                  </FriendAddedButton>
-                ) : (
-                  <AddFriendButton 
-                    onClick={() => handleAddFriend(result.id)}
-                    disabled={loadingStates[result.id]}
-                  >
-                    {loadingStates[result.id] ? 'Adding...' : 'Add Friend'}
-                  </AddFriendButton>
-                )}
+                {renderActionButton(result)}
               </UserCard>
             ))
           )}
@@ -516,7 +525,7 @@ const UserCardInterests = styled.div`
   color: #666;
 `;
 
-const AddFriendButton = styled.button`
+const SendRequestButton = styled.button`
   background: linear-gradient(to right, #6e8efb, #a777e3);
   color: white;
   border: none;
@@ -541,6 +550,42 @@ const AddFriendButton = styled.button`
   }
 `;
 
+const PendingButton = styled.button`
+  background: #ffa726;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: not-allowed;
+`;
+
+const RejectedButton = styled.button`
+  background: #e57373;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: not-allowed;
+`;
+
+const FriendAddedButton = styled.button`
+  background: #66bb6a;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: not-allowed;
+`;
+
 const LoadingMessage = styled.div`
   padding: 40px;
   text-align: center;
@@ -560,18 +605,6 @@ const SearchPrompt = styled.div`
   text-align: center;
   color: #666;
   font-size: 1rem;
-`;
-
-const FriendAddedButton = styled.button`
-  background: #e4e6e9;
-  color: #666;
-  border: none;
-  padding: 8px 16px;
-  border-radius: 6px;
-  font-size: 0.875rem;
-  font-weight: 600;
-  white-space: nowrap;
-  cursor: not-allowed;
 `;
 
 const DebugInfo = styled.div`

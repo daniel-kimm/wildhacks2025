@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
 import { supabase } from '../utils/supabaseClient';
+import NotificationInbox from '../components/NotificationInbox';
 
 const Friends = () => {
   const navigate = useNavigate();
@@ -128,7 +129,6 @@ const Friends = () => {
         id: profile.id,
         name: profile.name || 'Unnamed User',
         interests: profile.interests ? profile.interests.split(',').map(i => i.trim()) : [],
-        preferences: profile.preferences || '',
         avatar: profile.avatar_url || profile.name?.charAt(0) || 'U',
         lastActive: 'Recently'
       }));
@@ -176,6 +176,7 @@ const Friends = () => {
           <NavItem onClick={() => handleNavigate('/map')}>Map</NavItem>
         </Navigation>
         <UserSection>
+          <NotificationInbox />
           <UserName>{user.name}</UserName>
           <UserAvatar>
             <img src={user.avatar} alt="User avatar" />
