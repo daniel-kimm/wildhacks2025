@@ -271,6 +271,8 @@ const AddFriend = () => {
         throw new Error('You must be logged in to accept a friend request');
       }
       
+      console.log(`Accepting friend request from ${senderId} to ${user.id}`);
+      
       // Call the database function to accept the request and create friendship
       const { data, error } = await supabase
         .rpc('accept_friend_request', {
@@ -278,9 +280,14 @@ const AddFriend = () => {
           recipient_id: user.id
         });
       
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase RPC error:', error);
+        throw error;
+      }
       
-      if (!data) {
+      console.log('Accept friend request response:', data);
+      
+      if (data === false) {
         throw new Error('Could not find or accept the friend request');
       }
       
@@ -293,10 +300,11 @@ const AddFriend = () => {
         )
       );
       
+      // Show success message
       alert('Friend request accepted!');
       
-      // Refresh the list
-      fetchAllUsers();
+      // Refresh the list to ensure UI is up to date
+      await fetchAllUsers();
     } catch (error) {
       console.error('Error accepting friend request:', error);
       alert(`Failed to accept friend request: ${error.message}`);
@@ -316,12 +324,14 @@ const AddFriend = () => {
     
     // Check for received requests
     if (user.receivedRequestStatus === 'pending') {
+      const isLoading = loadingStates[user.id];
       return (
         <PendingButton 
           onClick={() => handleAcceptRequest(user.id)} 
-          style={{ background: '#4caf50' }}
+          style={{ background: isLoading ? '#aaa' : '#4caf50' }}
+          disabled={isLoading}
         >
-          Accept Request
+          {isLoading ? 'Processing...' : 'Accept Request'}
         </PendingButton>
       );
     }

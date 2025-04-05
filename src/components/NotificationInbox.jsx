@@ -102,35 +102,41 @@ const NotificationInbox = () => {
   // Handle accepting a friend request
   const handleAccept = async (requestId, senderId) => {
     try {
-      // Update request status to 'accepted'
-      const { error: updateError } = await supabase
-        .from('friend_requests')
-        .update({ status: 'accepted', updated_at: new Date() })
-        .eq('id', requestId);
+      setLoading(true);
       
-      if (updateError) throw updateError;
-      
-      // Get current user
+      // Get current user ID
       const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        throw new Error('You must be logged in to accept a friend request');
+      }
       
-      // Add both directions of the friendship to the friends table
-      const { error: friendError } = await supabase
-        .from('friends')
-        .insert([
-          { user_id: user.id, friend_id: senderId },
-          { user_id: senderId, friend_id: user.id }
-        ]);
+      console.log(`Accepting friend request ID ${requestId} from ${senderId} to ${user.id}`);
       
-      if (friendError) throw friendError;
+      // Call the database function to handle acceptance
+      const { data, error } = await supabase
+        .rpc('accept_friend_request', {
+          sender_id: senderId,
+          recipient_id: user.id
+        });
       
-      // Update the local state
-      setRequests(prev => prev.filter(req => req.id !== requestId));
-      setNotificationCount(prev => prev - 1);
+      if (error) {
+        console.error('Error in RPC call:', error);
+        throw error;
+      }
       
-      alert('Friend request accepted!');
+      console.log('RPC response:', data);
+      
+      if (data === false) {
+        throw new Error('No pending friend request found');
+      }
+      
+      // Refresh notification list
+      fetchFriendRequests();
     } catch (error) {
       console.error('Error accepting friend request:', error);
-      alert('Failed to accept request. Please try again.');
+      alert(`Failed to accept request: ${error.message}`);
+    } finally {
+      setLoading(false);
     }
   };
 
