@@ -122,10 +122,24 @@ const AddFriend = () => {
         console.error("Error fetching sent requests:", sentError);
       }
       
+      // Get received friend requests
+      const { data: receivedRequests, error: receivedError } = await supabase
+        .from('friend_requests')
+        .select('sender_id, status')
+        .eq('recipient_id', currentUserId);
+      
+      if (receivedError) {
+        console.error("Error fetching received requests:", receivedError);
+      }
+      
       // Create lookup maps for quick checking
       const friendIds = new Set(existingFriends?.map(f => f.friend_id) || []);
-      const requestMap = (sentRequests || []).reduce((map, req) => {
+      const sentRequestMap = (sentRequests || []).reduce((map, req) => {
         map[req.recipient_id] = req.status;
+        return map;
+      }, {});
+      const receivedRequestMap = (receivedRequests || []).reduce((map, req) => {
+        map[req.sender_id] = req.status;
         return map;
       }, {});
       
@@ -142,7 +156,8 @@ const AddFriend = () => {
         avatar: user.avatar_url || (user.name ? user.name.charAt(0) : 'U'),
         email: user.email,
         isFriend: friendIds.has(user.id),
-        requestStatus: requestMap[user.id] || null
+        requestStatus: sentRequestMap[user.id] || null,
+        receivedRequestStatus: receivedRequestMap[user.id] || null
       }));
       
       console.log("Formatted users:", formattedUsers.length);
@@ -244,6 +259,52 @@ const AddFriend = () => {
     }
   };
 
+  // Function to accept a friend request
+  const handleAcceptRequest = async (senderId) => {
+    try {
+      setLoadingStates(prev => ({ ...prev, [senderId]: true }));
+      
+      // Get current user ID
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (!user) {
+        throw new Error('You must be logged in to accept a friend request');
+      }
+      
+      // Call the database function to accept the request and create friendship
+      const { data, error } = await supabase
+        .rpc('accept_friend_request', {
+          sender_id: senderId,
+          recipient_id: user.id
+        });
+      
+      if (error) throw error;
+      
+      if (!data) {
+        throw new Error('Could not find or accept the friend request');
+      }
+      
+      // Update the local state
+      setAllUsers(prevUsers => 
+        prevUsers.map(u => 
+          u.id === senderId 
+            ? { ...u, isFriend: true, receivedRequestStatus: 'accepted' } 
+            : u
+        )
+      );
+      
+      alert('Friend request accepted!');
+      
+      // Refresh the list
+      fetchAllUsers();
+    } catch (error) {
+      console.error('Error accepting friend request:', error);
+      alert(`Failed to accept friend request: ${error.message}`);
+    } finally {
+      setLoadingStates(prev => ({ ...prev, [senderId]: false }));
+    }
+  };
+
   // Display all users if no search is active
   const displayResults = searchTerm.trim() === '' ? allUsers : searchResults;
 
@@ -253,6 +314,19 @@ const AddFriend = () => {
       return <FriendAddedButton disabled>Already Friends</FriendAddedButton>;
     }
     
+    // Check for received requests
+    if (user.receivedRequestStatus === 'pending') {
+      return (
+        <PendingButton 
+          onClick={() => handleAcceptRequest(user.id)} 
+          style={{ background: '#4caf50' }}
+        >
+          Accept Request
+        </PendingButton>
+      );
+    }
+    
+    // Check for sent requests
     switch (user.requestStatus) {
       case 'pending':
         return <PendingButton disabled>Request Sent</PendingButton>;

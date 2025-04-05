@@ -69,7 +69,7 @@ const NotificationInbox = () => {
       
       console.log("Fetching friend requests for user:", user.id);
       
-      // Get pending friend requests
+      // Get pending friend requests with correct profiles join
       const { data, error } = await supabase
         .from('friend_requests')
         .select(`
@@ -77,7 +77,7 @@ const NotificationInbox = () => {
           sender_id,
           status,
           created_at,
-          profiles!friend_requests_sender_id_fkey(name, avatar_url)
+          sender:profiles(name, avatar_url)
         `)
         .eq('recipient_id', user.id)
         .eq('status', 'pending')
@@ -185,16 +185,16 @@ const NotificationInbox = () => {
               {requests.map(request => (
                 <NotificationItem key={request.id}>
                   <RequestAvatar>
-                    {request.profiles.avatar_url ? (
-                      <img src={request.profiles.avatar_url} alt="User avatar" />
+                    {request.sender.avatar_url ? (
+                      <img src={request.sender.avatar_url} alt="User avatar" />
                     ) : (
                       <AvatarPlaceholder>
-                        {(request.profiles.name || 'U').charAt(0).toUpperCase()}
+                        {(request.sender.name || 'U').charAt(0).toUpperCase()}
                       </AvatarPlaceholder>
                     )}
                   </RequestAvatar>
                   <RequestInfo>
-                    <RequestName>{request.profiles.name || 'Unknown User'}</RequestName>
+                    <RequestName>{request.sender.name || 'Unknown User'}</RequestName>
                     <RequestTime>
                       {new Date(request.created_at).toLocaleDateString()}
                     </RequestTime>
