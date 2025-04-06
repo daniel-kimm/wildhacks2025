@@ -74,7 +74,7 @@ const Login = () => {
           
           <NewUserText>
             New to HangoutAI?{' '}
-            <NewUserLink onClick={() => navigate('/onboarding')}>
+            <NewUserLink onClick={() => navigate('/signup')}>
               Create an account
             </NewUserLink>
           </NewUserText>

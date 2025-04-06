@@ -8,6 +8,7 @@ import Friends from './pages/Friends';
 import Groups from './pages/Groups';
 import Map from './pages/Map';
 import Login from './pages/Login';
+import Signup from './pages/Signup';
 import { supabase } from './utils/supabaseClient';
 
 function App() {
@@ -72,7 +73,8 @@ function App() {
         {/* Public routes */}
         <Route path="/" element={<Navigate to={session ? "/dashboard" : "/login"} />} />
         <Route path="/login" element={session ? <Navigate to="/dashboard" /> : <Login />} />
-        <Route path="/onboarding" element={session ? <Navigate to="/dashboard" /> : <Onboarding />} />
+        <Route path="/signup" element={session ? <Navigate to="/onboarding" /> : <Signup />} />
+        <Route path="/onboarding" element={!session ? <Navigate to="/login" /> : <Onboarding />} />
         
         {/* Protected routes */}
         <Route path="/dashboard" element={!session ? <Navigate to="/login" /> : <Dashboard />} />

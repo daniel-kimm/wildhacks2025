@@ -7,7 +7,6 @@ import { updateUserProfile } from '../utils/userProfile';
 const Onboarding = () => {
   const navigate = useNavigate();
   const [step, setStep] = useState(0);
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [userData, setUserData] = useState({
     name: '',
     interests: '',
@@ -26,7 +25,6 @@ const Onboarding = () => {
       if (session) {
         const { user } = session;
         // User is logged in, set user data
-        setIsLoggedIn(true);
         setUserData(prev => ({
           ...prev,
           name: user.user_metadata?.full_name || '',
@@ -34,7 +32,20 @@ const Onboarding = () => {
           avatar_url: user.user_metadata?.avatar_url || ''
         }));
         
-        // If they have a name already, move to step 2
+        // Check if the user has completed onboarding by checking if their profile exists
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', user.id)
+          .single();
+        
+        // If they have a complete profile, redirect to dashboard
+        if (profile && profile.interests && profile.preferences) {
+          navigate('/dashboard');
+          return;
+        }
+        
+        // Otherwise, set step based on what information is available
         if (user.user_metadata?.full_name) {
           setStep(2);
         } else {
@@ -44,7 +55,7 @@ const Onboarding = () => {
     };
     
     checkUser();
-  }, []);
+  }, [navigate]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -486,4 +497,4 @@ const ExistingUserLink = styled.span`
   }
 `;
 
-export default Onboarding; 
+export default Onboarding;
