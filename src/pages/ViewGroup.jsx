@@ -6,10 +6,13 @@ import { supabase } from '../utils/supabaseClient';
 const ViewGroup = () => {
   const { groupId } = useParams();
   const navigate = useNavigate();
+  console.log('ViewGroup component loaded with groupId:', groupId);
+  
   const [group, setGroup] = useState(null);
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [isMember, setIsMember] = useState(false);
   const [formData, setFormData] = useState({
     priceLimit: 50,
     distanceLimit: 5,
@@ -29,35 +32,133 @@ const ViewGroup = () => {
   useEffect(() => {
     const fetchGroupData = async () => {
       try {
+        console.log('Fetching group data for ID:', groupId);
+        
+        // Check if groupId is valid
+        if (!groupId || typeof groupId !== 'string' || groupId.trim() === '') {
+          console.error('Invalid group ID:', groupId);
+          setError('Invalid group ID');
+          setLoading(false);
+          return;
+        }
+        
         setLoading(true);
         
-        // Fetch group details
+        // Get current user
+        const { data: { user: currentUser }, error: userError } = await supabase.auth.getUser();
+        
+        if (userError) {
+          console.error('Error getting current user:', userError);
+          setError('Authentication error');
+          setLoading(false);
+          return;
+        }
+        
+        if (!currentUser) {
+          console.error('No authenticated user found');
+          setError('You must be logged in to view groups');
+          setLoading(false);
+          return;
+        }
+        
+        console.log('Current user:', currentUser.id);
+        
+        // Check if the group exists
         const { data: groupData, error: groupError } = await supabase
           .from('groups')
           .select('*')
           .eq('id', groupId)
           .single();
         
-        if (groupError) throw groupError;
+        if (groupError) {
+          console.error('Error fetching group:', groupError);
+          throw groupError;
+        }
         
+        console.log('Group data fetched successfully:', groupData);
         setGroup(groupData);
         
-        // Fetch group members
-        const { data: membersData, error: membersError } = await supabase
+        // Check if the user is a member of the group
+        const { data: membershipData, error: membershipError } = await supabase
           .from('group_members')
-          .select(`
-            user_id,
-            users:user_id (
-              id,
-              username,
-              avatar_url
-            )
-          `)
-          .eq('group_id', groupId);
+          .select('*')
+          .eq('group_id', groupId)
+          .eq('user_id', currentUser.id)
+          .single();
         
-        if (membersError) throw membersError;
+        if (membershipError && membershipError.code !== 'PGRST116') {
+          // PGRST116 is the error code for "no rows returned" which is expected if the user is not a member
+          console.error('Error checking membership:', membershipError);
+        }
         
-        setMembers(membersData.map(member => member.users));
+        const userIsMember = !!membershipData;
+        console.log('User is member of group:', userIsMember);
+        setIsMember(userIsMember);
+        
+        // Check if the group_members table exists
+        try {
+          console.log('Checking group_members table structure');
+          const { data: tableInfo, error: tableError } = await supabase
+            .from('group_members')
+            .select('*')
+            .limit(1);
+          
+          if (tableError) {
+            console.error('Error checking group_members table:', tableError);
+            // Continue with empty members list
+            setMembers([]);
+            return;
+          }
+          
+          console.log('group_members table exists, fetching members');
+          
+          // Fetch group members
+          const { data: membersData, error: membersError } = await supabase
+            .from('group_members')
+            .select(`
+              user_id,
+              users:user_id (
+                id,
+                username,
+                avatar_url
+              )
+            `)
+            .eq('group_id', groupId);
+          
+          if (membersError) {
+            console.error('Error fetching members:', membersError);
+            throw membersError;
+          }
+          
+          console.log('Members data fetched successfully:', membersData);
+          
+          // Check if membersData is in the expected format
+          if (!membersData || !Array.isArray(membersData)) {
+            console.error('Members data is not in the expected format:', membersData);
+            setMembers([]);
+            return;
+          }
+          
+          // Map the members data, with a fallback for missing user data
+          const formattedMembers = membersData.map(member => {
+            if (!member || !member.users) {
+              console.warn('Member data is missing user information:', member);
+              return {
+                id: member?.user_id || 'unknown',
+                username: 'Unknown User',
+                avatar_url: 'https://via.placeholder.com/40'
+              };
+            }
+            return member.users;
+          });
+          
+          console.log('Formatted members:', formattedMembers);
+          setMembers(formattedMembers);
+        } catch (tableErr) {
+          console.error('Error with group_members table:', tableErr);
+          // Continue with empty members list
+          setMembers([]);
+        }
       } catch (err) {
         console.error('Error fetching group data:', err);
         setError('Failed to load group information');
@@ -128,7 +229,75 @@ const ViewGroup = () => {
     setMessageInput('');
   };
 
+  const handleJoinGroup = async () => {
+    try {
+      // Get current user
+      const { data: { user: currentUser }, error: userError } = await supabase.auth.getUser();
+      
+      if (userError || !currentUser) {
+        console.error('Error getting current user:', userError);
+        setError('Authentication error');
+        return;
+      }
+      
+      // Add user to group_members
+      const { data, error } = await supabase
+        .from('group_members')
+        .insert([
+          {
+            group_id: groupId,
+            user_id: currentUser.id
+          }
+        ]);
+      
+      if (error) {
+        console.error('Error joining group:', error);
+        setError('Failed to join group');
+        return;
+      }
+      
+      console.log('Successfully joined group');
+      setIsMember(true);
+      
+      // Refresh members list
+      const { data: membersData, error: membersError } = await supabase
+        .from('group_members')
+        .select(`
+          user_id,
+          users:user_id (
+            id,
+            username,
+            avatar_url
+          )
+        `)
+        .eq('group_id', groupId);
+      
+      if (membersError) {
+        console.error('Error fetching members after joining:', membersError);
+        return;
+      }
+      
+      // Map the members data, with a fallback for missing user data
+      const formattedMembers = membersData.map(member => {
+        if (!member || !member.users) {
+          return {
+            id: member?.user_id || 'unknown',
+            username: 'Unknown User',
+            avatar_url: 'https://via.placeholder.com/40'
+          };
+        }
+        return member.users;
+      });
+      
+      setMembers(formattedMembers);
+    } catch (err) {
+      console.error('Error joining group:', err);
+      setError('Failed to join group');
+    }
+  };
+
   if (loading) {
+    console.log('ViewGroup is in loading state');
     return (
       <Container>
         <LoadingMessage>Loading group information...</LoadingMessage>
@@ -137,31 +306,68 @@ const ViewGroup = () => {
   }
 
   if (error) {
+    console.log('ViewGroup has error:', error);
     return (
       <Container>
         <ErrorMessage>{error}</ErrorMessage>
+        <BackButton onClick={() => navigate('/groups')}>Back to Groups</BackButton>
       </Container>
     );
   }
 
+  if (!group) {
+    console.log('No group data found for ID:', groupId);
+    return (
+      <Container>
+        <ErrorMessage>Group not found. The group may have been deleted or you may not have permission to view it.</ErrorMessage>
+        <BackButton onClick={() => navigate('/groups')}>Back to Groups</BackButton>
+      </Container>
+    );
+  }
+
+  if (!isMember) {
+    console.log('User is not a member of the group');
+    return (
+      <Container>
+        <Header>
+          <Title>{group?.name || 'Group'}</Title>
+          <BackButton onClick={() => navigate('/groups')}>Back to Groups</BackButton>
+        </Header>
+        <Content>
+          <Section>
+            <ErrorMessage>You are not a member of this group. Please join the group to view its details.</ErrorMessage>
+            <JoinButton onClick={handleJoinGroup}>Join Group</JoinButton>
+          </Section>
+        </Content>
+      </Container>
+    );
+  }
+
+  console.log('ViewGroup rendering with group:', group);
   return (
     <Container>
       <Header>
-        <Title>{group?.name}</Title>
+        <Title>{group?.name || 'Group'}</Title>
         <BackButton onClick={() => navigate('/groups')}>Back to Groups</BackButton>
       </Header>
       
       <Content>
         <Section>
           <SectionTitle>Group Members</SectionTitle>
-          <MembersList>
-            {members.map(member => (
-              <MemberCard key={member.id}>
-                <MemberAvatar src={member.avatar_url || 'https://via.placeholder.com/40'} alt={member.username} />
-                <MemberName>{member.username}</MemberName>
-              </MemberCard>
-            ))}
-          </MembersList>
+          {members.length > 0 ? (
+            <MembersList>
+              {members.map(member => (
+                <MemberCard key={member.id}>
+                  <MemberAvatar src={member.avatar_url || 'https://via.placeholder.com/40'} alt={member.username} />
+                  <MemberName>{member.username}</MemberName>
+                </MemberCard>
+              ))}
+            </MembersList>
+          ) : (
+            <EmptyState>
+              <EmptyStateText>No members found for this group.</EmptyStateText>
+            </EmptyState>
+          )}
         </Section>
         
         <Section>
@@ -486,6 +692,33 @@ const ErrorMessage = styled.div`
   padding: 1rem;
   background-color: #fdf0ed;
   border-radius: 4px;
+`;
+
+const EmptyState = styled.div`
+  text-align: center;
+  padding: 2rem;
+  background-color: #f9f9f9;
+  border-radius: 8px;
+`;
+
+const EmptyStateText = styled.span`
+  font-size: 1.2rem;
+  color: #666;
+`;
+
+const JoinButton = styled.button`
+  background-color: #6e8efb;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 10px 20px;
+  font-size: 1rem;
+  cursor: pointer;
+  margin-top: 1rem;
+  
+  &:hover {
+    background-color: #5d7dea;
+  }
 `;
 
 export default ViewGroup; 
