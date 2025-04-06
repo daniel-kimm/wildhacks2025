@@ -11,7 +11,6 @@ import Login from './pages/Login';
 import { supabase } from './utils/supabaseClient';
 
 function App() {
-  console.log("App component mounted");
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -70,17 +69,17 @@ function App() {
     <Router>
       <Routes>
         {/* Public routes */}
-        <Route path="/" element={<Navigate to={session ? "/dashboard" : "/login"} />} />
-        <Route path="/login" element={session ? <Navigate to="/dashboard" /> : <Login />} />
-        <Route path="/onboarding" element={session ? <Navigate to="/dashboard" /> : <Onboarding />} />
+        <Route path="/" element={session ? <Navigate to="/dashboard" replace /> : <Navigate to="/login" replace />} />
+        <Route path="/login" element={session ? <Navigate to="/dashboard" replace /> : <Login />} />
+        <Route path="/onboarding" element={session ? <Navigate to="/dashboard" replace /> : <Onboarding />} />
         
         {/* Protected routes */}
-        <Route path="/dashboard" element={!session ? <Navigate to="/login" /> : <Dashboard />} />
-        <Route path="/add-friend" element={!session ? <Navigate to="/login" /> : <AddFriend />} />
-        <Route path="/create-group" element={!session ? <Navigate to="/login" /> : <CreateGroup />} />
-        <Route path="/friends" element={!session ? <Navigate to="/login" /> : <Friends />} />
-        <Route path="/groups" element={!session ? <Navigate to="/login" /> : <Groups />} />
-        <Route path="/map" element={!session ? <Navigate to="/login" /> : <Map />} />
+        <Route path="/dashboard" element={!session ? <Navigate to="/login" replace /> : <Dashboard />} />
+        <Route path="/add-friend" element={!session ? <Navigate to="/login" replace /> : <AddFriend />} />
+        <Route path="/create-group" element={!session ? <Navigate to="/login" replace /> : <CreateGroup />} />
+        <Route path="/friends" element={!session ? <Navigate to="/login" replace /> : <Friends />} />
+        <Route path="/groups" element={!session ? <Navigate to="/login" replace /> : <Groups />} />
+        <Route path="/map" element={!session ? <Navigate to="/login" replace /> : <Map />} />
       </Routes>
     </Router>
   );
