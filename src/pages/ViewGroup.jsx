@@ -16,6 +16,15 @@ const ViewGroup = () => {
     timeOfDay: 'afternoon',
     preferences: ''
   });
+  
+  // Chat UI state
+  const [messageInput, setMessageInput] = useState('');
+  const [chatMessages, setChatMessages] = useState([
+    { id: 1, sender: 'Alex Johnson', message: 'Hey everyone! Anyone up for coffee this weekend?', timestamp: '2 hours ago' },
+    { id: 2, sender: 'Sam Carter', message: 'I\'m in! How about Saturday afternoon?', timestamp: '1 hour ago' },
+    { id: 3, sender: 'Jamie Smith', message: 'Saturday works for me too. Any specific place in mind?', timestamp: '45 mins ago' },
+    { id: 4, sender: 'Alex Johnson', message: 'I was thinking of trying that new cafe downtown.', timestamp: '30 mins ago' }
+  ]);
 
   useEffect(() => {
     const fetchGroupData = async () => {
@@ -96,6 +105,28 @@ const ViewGroup = () => {
       setError('Failed to create hangout');
     }
   };
+  
+  // Chat UI handlers
+  const handleMessageChange = (e) => {
+    setMessageInput(e.target.value);
+  };
+  
+  const handleSendMessage = (e) => {
+    e.preventDefault();
+    if (messageInput.trim() === '') return;
+    
+    // In a real app, this would send the message to a backend
+    // For now, we'll just add it to the local state
+    const newMessage = {
+      id: chatMessages.length + 1,
+      sender: 'You',
+      message: messageInput,
+      timestamp: 'Just now'
+    };
+    
+    setChatMessages([...chatMessages, newMessage]);
+    setMessageInput('');
+  };
 
   if (loading) {
     return (
@@ -131,6 +162,32 @@ const ViewGroup = () => {
               </MemberCard>
             ))}
           </MembersList>
+        </Section>
+        
+        <Section>
+          <SectionTitle>Group Chat</SectionTitle>
+          <ChatContainer>
+            <ChatMessages>
+              {chatMessages.map(message => (
+                <MessageBubble key={message.id} isCurrentUser={message.sender === 'You'}>
+                  <MessageHeader>
+                    <MessageSender>{message.sender}</MessageSender>
+                    <MessageTime>{message.timestamp}</MessageTime>
+                  </MessageHeader>
+                  <MessageContent>{message.message}</MessageContent>
+                </MessageBubble>
+              ))}
+            </ChatMessages>
+            <ChatInputForm onSubmit={handleSendMessage}>
+              <ChatInput
+                type="text"
+                placeholder="Type a message..."
+                value={messageInput}
+                onChange={handleMessageChange}
+              />
+              <SendButton type="submit">Send</SendButton>
+            </ChatInputForm>
+          </ChatContainer>
         </Section>
         
         <Section>
@@ -274,6 +331,89 @@ const MemberAvatar = styled.img`
 
 const MemberName = styled.span`
   font-weight: 500;
+`;
+
+// Chat UI styled components
+const ChatContainer = styled.div`
+  display: flex;
+  flex-direction: column;
+  height: 400px;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  overflow: hidden;
+`;
+
+const ChatMessages = styled.div`
+  flex: 1;
+  overflow-y: auto;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  background-color: #f9f9f9;
+`;
+
+const MessageBubble = styled.div`
+  max-width: 80%;
+  padding: 0.75rem 1rem;
+  border-radius: 18px;
+  background-color: ${props => props.isCurrentUser ? '#4a6cf7' : '#e9ecef'};
+  color: ${props => props.isCurrentUser ? 'white' : '#333'};
+  align-self: ${props => props.isCurrentUser ? 'flex-end' : 'flex-start'};
+`;
+
+const MessageHeader = styled.div`
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.25rem;
+  font-size: 0.8rem;
+`;
+
+const MessageSender = styled.span`
+  font-weight: 600;
+`;
+
+const MessageTime = styled.span`
+  color: ${props => props.isCurrentUser ? 'rgba(255, 255, 255, 0.7)' : '#666'};
+`;
+
+const MessageContent = styled.div`
+  word-break: break-word;
+`;
+
+const ChatInputForm = styled.form`
+  display: flex;
+  padding: 0.75rem;
+  background-color: white;
+  border-top: 1px solid #e0e0e0;
+`;
+
+const ChatInput = styled.input`
+  flex: 1;
+  padding: 0.75rem;
+  border: 1px solid #ddd;
+  border-radius: 20px;
+  margin-right: 0.5rem;
+  font-size: 0.9rem;
+  
+  &:focus {
+    outline: none;
+    border-color: #4a6cf7;
+  }
+`;
+
+const SendButton = styled.button`
+  background-color: #4a6cf7;
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 20px;
+  cursor: pointer;
+  font-weight: 500;
+  
+  &:hover {
+    background-color: #3a5ce5;
+  }
 `;
 
 const Form = styled.form`
