@@ -1,356 +1,440 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import styled from 'styled-components';
 import { supabase } from '../utils/supabaseClient';
-import mapboxgl from 'mapbox-gl';
-import 'mapbox-gl/dist/mapbox-gl.css';
-import { generateChatCompletion } from '../lib/openai';
-import { FaMapMarkerAlt, FaDollarSign } from 'react-icons/fa';
 
-// Simple token definition
-mapboxgl.accessToken = "pk.eyJ1Ijoiem91ZHluYXN0eSIsImEiOiJjbTk1MHBkanIxM2JxMmluN3NyNnNidTI5In0.1LL1jCv4LMiOLUoLgw_77g";
-
+// Correct component name!
 const RecommendationResults = () => {
   const { groupId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const formData = location.state || {}; // Get the form data passed from previous page
+  const requestId = location.state?.requestId;
   
+  console.log("RecommendationResults component mounted");
+  console.log("Group ID:", groupId);
+  console.log("Request ID from state:", requestId);
+
+  const [group, setGroup] = useState(null);
   const [user, setUser] = useState({
     id: null,
     name: 'User',
     avatar: 'https://via.placeholder.com/40'
   });
-  const [group, setGroup] = useState(null);
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  
+  // Results state
   const [loading, setLoading] = useState(true);
   const [recommendations, setRecommendations] = useState([]);
-  const [selectedRecommendation, setSelectedRecommendation] = useState(null);
-  const [aiSuggestion, setAiSuggestion] = useState('');
+  const [errorState, setErrorState] = useState(null);
+  const [responseData, setResponseData] = useState([]);
   
-  // Map refs
-  const mapContainer = useRef(null);
-  const map = useRef(null);
-  
-  // Load basic mock data on initial load
+  // Weather state (keeping this from form)
+  const [temperature, setTemperature] = useState(null);
+  const [weatherLoading, setWeatherLoading] = useState(true);
+  const [weatherError, setWeatherError] = useState(null);
+
   useEffect(() => {
-    console.log("Initial load useEffect triggered");
-    
-    const loadMockData = async () => {
-      try {
-        // Get user info
+    console.log("RecommendationResults useEffect running");
+    try {
+      const fetchUserData = async () => {
         try {
-          const { data: { user } } = await supabase.auth.getUser();
-          if (user) {
+          const { data: { user: authUser } } = await supabase.auth.getUser();
+          
+          if (!authUser) {
+            navigate('/login');
+            return;
+          }
+          
+          const { data: profileData } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', authUser.id)
+            .single();
+          
+          if (profileData) {
             setUser({
-              id: user.id,
-              name: user.user_metadata?.full_name || user.email,
-              avatar: user.user_metadata?.avatar_url || 'https://via.placeholder.com/40'
+              id: authUser.id,
+              name: profileData.name || authUser.email?.split('@')[0] || 'User',
+              avatar: profileData.avatar_url || 'https://via.placeholder.com/40'
             });
           }
-        } catch (error) {
-          console.error("Error fetching user:", error);
-        }
-        
-        // Load mock recommendations
-        const mockRecommendations = [
-          {
-            id: 1,
-            name: "Central Park Picnic",
-            type: "Outdoor Activity",
-            price: 15,
-            priceCategory: "$",
-            distance: 1.2,
-            description: "Enjoy a relaxing picnic in the park with beautiful scenery and plenty of space for games.",
-            image: "https://images.unsplash.com/photo-1529333166437-7750a6dd5a70?ixlib=rb-1.2.1&auto=format&fit=crop&w=400&q=80",
-            tags: ["Outdoor", "Relaxing", "Nature"],
-            location: { lat: 40.7812, lng: -73.9665 }
-          },
-          {
-            id: 2,
-            name: "Downtown Arcade",
-            type: "Entertainment",
-            price: 25,
-            priceCategory: "$$",
-            distance: 3.5,
-            description: "Classic and modern arcade games with a full bar and food menu. Perfect for groups looking for competitive fun.",
-            image: "https://images.unsplash.com/photo-1511882150382-421056c89033?ixlib=rb-1.2.1&auto=format&fit=crop&w=400&q=80",
-            tags: ["Games", "Indoor", "Drinks"],
-            location: { lat: 40.7580, lng: -73.9855 }
-          },
-          {
-            id: 3,
-            name: "Harbor Kayaking",
-            type: "Adventure",
-            price: 40,
-            priceCategory: "$$",
-            distance: 4.1,
-            description: "Explore the harbor by kayak with experienced guides. All equipment provided, no experience necessary.",
-            image: "https://images.unsplash.com/photo-1544551763-46a013bb70d5?ixlib=rb-1.2.1&auto=format&fit=crop&w=400&q=80",
-            tags: ["Water", "Adventure", "Active"],
-            location: { lat: 40.7023, lng: -74.0121 }
-          }
-        ];
-        
-        setRecommendations(mockRecommendations);
-        setSelectedRecommendation(mockRecommendations[0]);
-        setAiSuggestion("For an ideal day out with your group, consider starting with Central Park Picnic for some relaxation in nature, followed by an exciting Harbor Kayaking adventure. You could finish the day at Downtown Arcade for games and drinks.");
-        
-        // Finish loading
-        setLoading(false);
-      } catch (error) {
-        console.error("Error in loadMockData:", error);
-        setLoading(false);
-      }
-    };
-    
-    loadMockData();
-  }, []);
-  
-  // Simple map initialization - separate from data loading
-  useEffect(() => {
-    if (map.current) return; // already initialized
-    if (!mapContainer.current) return; // container not ready
-    
-    try {
-      map.current = new mapboxgl.Map({
-        container: mapContainer.current,
-        style: 'mapbox://styles/mapbox/streets-v11',
-        center: [-74.0060, 40.7128], // NYC
-        zoom: 10
-      });
-      
-      // Add navigation controls
-      map.current.addControl(new mapboxgl.NavigationControl());
-      
-      // Clean up on unmount
-      return () => {
-        if (map.current) {
-          map.current.remove();
+        } catch (err) {
+          console.error('Error loading user data:', err);
         }
       };
-    } catch (error) {
-      console.error("Error initializing map:", error);
-    }
-  }, []);
-  
-  // Add markers when recommendations change
-  useEffect(() => {
-    if (!map.current || !recommendations.length) return;
-    
-    try {
-      // Wait for map to be ready
-      map.current.on('load', () => {
-        // Add markers for recommendations
-        recommendations.forEach(rec => {
-          if (rec.location) {
-            new mapboxgl.Marker()
-              .setLngLat([rec.location.lng, rec.location.lat])
-              .setPopup(new mapboxgl.Popup().setText(rec.name))
-              .addTo(map.current);
+
+      const fetchGroupDetails = async () => {
+        try {
+          const { data: groupData, error: groupError } = await supabase
+            .from('groups')
+            .select('*')
+            .eq('id', groupId)
+            .single();
+          
+          if (groupError) {
+            throw groupError;
           }
-        });
-        
-        // Fit map to markers
-        const bounds = new mapboxgl.LngLatBounds();
-        recommendations.forEach(rec => {
-          if (rec.location) {
-            bounds.extend([rec.location.lng, rec.location.lat]);
+          
+          if (!groupData) {
+            throw new Error('Group not found');
           }
-        });
-        
-        if (!bounds.isEmpty()) {
-          map.current.fitBounds(bounds, { padding: 50 });
+          
+          setGroup(groupData);
+        } catch (err) {
+          console.error('Error fetching group details:', err);
         }
-      });
-    } catch (error) {
-      console.error("Error adding markers:", error);
+      };
+
+      // Fetch responses for this request
+      const fetchResponses = async () => {
+        if (!requestId) {
+          console.error("No request ID provided in location state");
+          setErrorState('No hangout request specified');
+          setLoading(false);
+          return;
+        }
+        
+        try {
+          console.log('Fetching responses for request:', requestId);
+          const { data, error } = await supabase
+            .from('hangout_responses')
+            .select('*')
+            .eq('request_id', requestId);
+            
+          if (error) throw error;
+          
+          console.log('Response data:', data);
+          
+          if (!data || data.length === 0) {
+            console.log('No responses found');
+            setResponseData([{
+              form_data: {
+                priceLimit: 50,
+                distanceLimit: 5,
+                timeOfDay: 12,
+                preferences: ''
+              }
+            }]);
+          } else {
+            console.log('Found responses:', data.length);
+            setResponseData(data);
+          }
+          
+          // Generate mock recommendations regardless of data
+          generateRecommendations(data || []);
+        } catch (err) {
+          console.error('Error fetching responses:', err);
+          setErrorState('Failed to load hangout responses');
+          setLoading(false);
+        }
+      };
+
+      fetchUserData();
+      fetchGroupDetails();
+      fetchResponses();
+      getWeatherData();
+    } catch (err) {
+      console.error("Critical error in useEffect:", err);
+      setErrorState("An unexpected error occurred. Please try refreshing the page.");
     }
-  }, [recommendations]);
-  
-  // Handle recommendation selection
-  const handleSelectRecommendation = (recommendation) => {
-    setSelectedRecommendation(recommendation);
-    
-    if (map.current && recommendation.location) {
-      try {
-        map.current.flyTo({
-          center: [recommendation.location.lng, recommendation.location.lat],
-          zoom: 14
-        });
-      } catch (error) {
-        console.error("Error flying to location:", error);
+  }, [groupId, navigate, requestId]);
+
+  // Update the getWeatherData function to use real location data
+  const getWeatherData = () => {
+    try {
+      setWeatherLoading(true);
+      setWeatherError(null); // Reset any previous errors
+      
+      console.log("Attempting to get location for weather data...");
+      
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          async (position) => {
+            try {
+              const { latitude, longitude } = position.coords;
+              console.log("Location obtained:", latitude, longitude);
+              
+              // Update to request temperature in Fahrenheit
+              const url = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current_weather=true&temperature_unit=fahrenheit`;
+              
+              console.log("Fetching weather from API:", url);
+              
+              const response = await fetch(url);
+              
+              if (!response.ok) {
+                throw new Error(`Weather API error: ${response.status} ${response.statusText}`);
+              }
+              
+              const data = await response.json();
+              console.log("Weather data received:", data);
+              
+              if (data && data.current_weather && typeof data.current_weather.temperature !== 'undefined') {
+                setTemperature(data.current_weather.temperature);
+                setWeatherLoading(false);
+              } else {
+                throw new Error('Unexpected API response structure');
+              }
+            } catch (err) {
+              console.error('Error fetching weather:', err);
+              setWeatherError('Weather information unavailable');
+              setWeatherLoading(false);
+            }
+          },
+          (err) => {
+            console.error('Geolocation permission error:', err);
+            setWeatherError('Location access denied');
+            setWeatherLoading(false);
+          }
+        );
+      } else {
+        setWeatherError('Geolocation not supported');
+        setWeatherLoading(false);
       }
+    } catch (err) {
+      console.error('Critical error in getWeatherData:', err);
+      setWeatherError('Failed to get weather');
+      setWeatherLoading(false);
     }
   };
-  
-  // Navigate back to group or form
-  const handleBackToGroup = () => {
-    if (groupId) {
-      navigate(`/group/${groupId}`);
-    } else {
-      navigate('/');
+
+  // Generate recommendations based on all responses
+  const generateRecommendations = (responses) => {
+    try {
+      // For testing, always generate mock recommendations
+      const mockRecommendations = [
+        {
+          id: 1,
+          name: 'Central Park Picnic',
+          description: 'Enjoy a relaxing picnic in the beautiful Central Park.',
+          priceEstimate: '$25-40 per person',
+          distance: '2.3 miles',
+          rating: 4.8,
+          type: 'Outdoor',
+          imageUrl: 'https://images.unsplash.com/photo-1617369120004-4fc70312c5e6'
+        },
+        {
+          id: 2,
+          name: 'Art Gallery Tour',
+          description: 'Explore the latest contemporary art exhibitions at local galleries.',
+          priceEstimate: '$15-30 per person',
+          distance: '1.8 miles',
+          rating: 4.6,
+          type: 'Cultural',
+          imageUrl: 'https://images.unsplash.com/photo-1577083288073-40892c0860a4'
+        },
+        {
+          id: 3,
+          name: 'Rooftop Brunch',
+          description: 'Savor delicious brunch with stunning city views from a rooftop restaurant.',
+          priceEstimate: '$35-50 per person',
+          distance: '3.1 miles',
+          rating: 4.7,
+          type: 'Food & Drink',
+          imageUrl: 'https://images.unsplash.com/photo-1590846406792-0adc7f938f1d'
+        }
+      ];
+      
+      setRecommendations(mockRecommendations);
+      setLoading(false);
+    } catch (err) {
+      console.error('Error generating recommendations:', err);
+      setErrorState('Failed to generate recommendations');
+      setLoading(false);
     }
   };
-  
-  // Navigate to new recommendation
-  const handleNewRecommendation = () => {
-    if (groupId) {
-      navigate(`/group/${groupId}/hangout`);
-    } else {
-      navigate('/hangout');
+
+  const handleSignOut = async () => {
+    try {
+      await supabase.auth.signOut();
+      navigate('/login');
+    } catch (error) {
+      console.error('Error signing out:', error);
     }
   };
-  
-  // Simple loading state
-  if (loading) {
+
+  const handleNavigate = (path) => {
+    navigate(path);
+  };
+
+  const handleGoBack = () => {
+    navigate(`/groups/${groupId}`);
+  };
+
+  // Format time of day from 0-24 to display time
+  const formatTimeOfDay = (value) => {
+    const hour = Math.floor(value);
+    const minutes = Math.round((value - hour) * 60);
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    const formattedHour = hour % 12 === 0 ? 12 : hour % 12;
+    return `${formattedHour}:${minutes.toString().padStart(2, '0')} ${ampm}`;
+  };
+
+  if (errorState) {
     return (
-      <Layout>
-        <ContentWrapper>
-          <LoadingContainer>
-            <LoadingText>Loading recommendations...</LoadingText>
-          </LoadingContainer>
-        </ContentWrapper>
-      </Layout>
+      <PageContainer>
+        <Header>
+          <Logo onClick={() => handleNavigate('/dashboard')}>HangoutAI</Logo>
+          <Navigation>
+            <NavItem onClick={() => handleNavigate('/dashboard')}>Home</NavItem>
+            <NavItem onClick={() => handleNavigate('/friends')}>Friends</NavItem>
+            <NavItem active onClick={() => handleNavigate('/groups')}>Groups</NavItem>
+            <NavItem onClick={() => handleNavigate('/map')}>Map</NavItem>
+          </Navigation>
+          <UserSection>
+            <UserName>User</UserName>
+            <UserAvatar>
+              <AvatarPlaceholder>U</AvatarPlaceholder>
+            </UserAvatar>
+          </UserSection>
+        </Header>
+        <ContentContainer>
+          <ErrorState>
+            <ErrorIcon>⚠️</ErrorIcon>
+            <ErrorText>{errorState}</ErrorText>
+            <BackButton onClick={() => navigate(`/groups/${groupId}`)}>Back to Group</BackButton>
+          </ErrorState>
+        </ContentContainer>
+      </PageContainer>
     );
   }
 
   return (
-    <Layout>
+    <PageContainer>
       <Header>
-        <Logo onClick={() => navigate('/')}>Hangouts</Logo>
+        <Logo onClick={() => handleNavigate('/dashboard')}>HangoutAI</Logo>
+        <Navigation>
+          <NavItem onClick={() => handleNavigate('/dashboard')}>Home</NavItem>
+          <NavItem onClick={() => handleNavigate('/friends')}>Friends</NavItem>
+          <NavItem active onClick={() => handleNavigate('/groups')}>Groups</NavItem>
+          <NavItem onClick={() => handleNavigate('/map')}>Map</NavItem>
+        </Navigation>
         <UserSection>
-          <UserAvatar 
-            src={user.avatar} 
-            alt={user.name}
-            onClick={() => setShowUserMenu(!showUserMenu)}
-          />
+          <UserName>{user.name}</UserName>
+          <UserAvatar onClick={() => setShowUserMenu(!showUserMenu)}>
+            {typeof user.avatar === 'string' && user.avatar.startsWith('http') ? (
+              <img src={user.avatar} alt="User avatar" />
+            ) : (
+              <AvatarPlaceholder>{user.name.charAt(0)}</AvatarPlaceholder>
+            )}
+            
+            {showUserMenu && (
+              <UserMenu>
+                <UserMenuItem>Profile</UserMenuItem>
+                <UserMenuItem>Settings</UserMenuItem>
+                <UserMenuDivider />
+                <UserMenuItem onClick={handleSignOut}>Sign Out</UserMenuItem>
+              </UserMenu>
+            )}
+          </UserAvatar>
         </UserSection>
       </Header>
-      
-      <ContentWrapper>
-        <Breadcrumb>
-          <BreadcrumbLink onClick={() => navigate('/')}>Home</BreadcrumbLink>
+
+      <ContentContainer>
+        <BreadcrumbNav>
+          <BreadcrumbLink onClick={() => navigate('/groups')}>Groups</BreadcrumbLink>
           <BreadcrumbSeparator>/</BreadcrumbSeparator>
-          <BreadcrumbCurrent>Recommendations</BreadcrumbCurrent>
-        </Breadcrumb>
+          <BreadcrumbLink onClick={handleGoBack}>{group?.name}</BreadcrumbLink>
+          <BreadcrumbSeparator>/</BreadcrumbSeparator>
+          <BreadcrumbCurrent>Hangout Recommendations</BreadcrumbCurrent>
+        </BreadcrumbNav>
         
-        <ResultsTitle>Your Perfect Hangout Spots</ResultsTitle>
-        
-        <ResultsLayout>
-          <RecommendationsList>
-            {recommendations.map((recommendation, index) => (
-              <StyledRecommendationCard 
-                key={recommendation.id}
-                selected={selectedRecommendation?.id === recommendation.id}
-                onClick={() => handleSelectRecommendation(recommendation)}
-              >
-                <RecNumberBadge>{index + 1}</RecNumberBadge>
-                <RecImage style={{backgroundImage: `url(${recommendation.image})`}}>
-                  <RecImageOverlay />
-                </RecImage>
-                <RecContent>
-                  <RecName>{recommendation.name}</RecName>
-                  <RecDetails>
-                    <RecType>{recommendation.type}</RecType>
-                    <RecDetailsDot>•</RecDetailsDot>
-                    <RecPrice>{recommendation.priceCategory}</RecPrice>
-                    <RecDetailsDot>•</RecDetailsDot>
-                    <RecDistance>{recommendation.distance} mi</RecDistance>
-                  </RecDetails>
-                  <RecTags>
-                    {recommendation.tags.map((tag, i) => (
-                      <RecTag key={i}>{tag}</RecTag>
-                    ))}
-                  </RecTags>
-                </RecContent>
-              </StyledRecommendationCard>
-            ))}
-          </RecommendationsList>
-          
-          <MapSection>
-            <div 
-              ref={mapContainer} 
-              style={{ 
-                height: '600px', 
-                width: '100%', 
-                borderRadius: '12px',
-                marginBottom: '20px'
-              }} 
-            />
-            
-            {selectedRecommendation && (
-              <StyledDetailPanel>
-                <DetailHeader>
-                  <DetailName>{selectedRecommendation.name}</DetailName>
-                  <DetailType>
-                    {selectedRecommendation.type} • 
-                    {selectedRecommendation.priceCategory} • 
-                    {selectedRecommendation.distance} mi
-                  </DetailType>
-                </DetailHeader>
-                
-                <DetailDescription>
-                  {selectedRecommendation.description}
-                </DetailDescription>
-                
-                <DetailStats>
-                  <DetailStat>
-                    <DetailStatIcon>📍</DetailStatIcon>
-                    <DetailStatValue>
-                      {selectedRecommendation.address || "Location available on map"}
-                    </DetailStatValue>
-                  </DetailStat>
-                  
-                  <DetailStat>
-                    <DetailStatIcon>💲</DetailStatIcon>
-                    <DetailStatValue>
-                      Average Price: ${selectedRecommendation.price}
-                    </DetailStatValue>
-                  </DetailStat>
-                </DetailStats>
-                
-                <GetDirectionsButton 
-                  onClick={() => {
-                    if (selectedRecommendation.location) {
-                      window.open(
-                        `https://maps.google.com/maps?q=${selectedRecommendation.location.lat},${selectedRecommendation.location.lng}`,
-                        '_blank'
-                      );
-                    }
-                  }}
-                >
-                  Get Directions
-                </GetDirectionsButton>
-              </StyledDetailPanel>
+        <ResultsCard>
+          <ResultsHeader>
+            <ResultsTitle>Hangout Recommendations</ResultsTitle>
+            {weatherLoading ? (
+              <WeatherInfo>
+                <WeatherIcon>⏳</WeatherIcon>
+                <WeatherTemp>Loading weather...</WeatherTemp>
+              </WeatherInfo>
+            ) : weatherError ? (
+              <WeatherInfo>
+                <WeatherIcon>⚠️</WeatherIcon>
+                <WeatherTemp>{weatherError}</WeatherTemp>
+              </WeatherInfo>
+            ) : (
+              <WeatherInfo>
+                <WeatherIcon>🌡️</WeatherIcon>
+                <WeatherTemp>{Math.round(temperature)}°F</WeatherTemp>
+                <WeatherLocation>around you</WeatherLocation>
+              </WeatherInfo>
             )}
-          </MapSection>
-        </ResultsLayout>
-        
-        <AISuggestionContainer>
-          <AISuggestionHeader>
-            <AISuggestionIcon>✨</AISuggestionIcon>
-            <AISuggestionTitle>AI Suggestion</AISuggestionTitle>
-          </AISuggestionHeader>
-          <AISuggestionText>{aiSuggestion}</AISuggestionText>
-        </AISuggestionContainer>
-        
-        <ButtonGroup>
-          <BackToGroupButton onClick={handleBackToGroup}>
-            {groupId ? 'Back to Group' : 'Back to Home'}
-          </BackToGroupButton>
-          <NewRecommendationButton onClick={handleNewRecommendation}>
-            Get New Recommendations
-          </NewRecommendationButton>
-        </ButtonGroup>
-      </ContentWrapper>
-    </Layout>
+          </ResultsHeader>
+          
+          <ResultsDescription>
+            Based on everyone's preferences, here are the top recommendations for your group!
+          </ResultsDescription>
+          
+          {loading ? (
+            <LoadingContainer>
+              <LoadingSpinner />
+              <LoadingText>Generating recommendations...</LoadingText>
+            </LoadingContainer>
+          ) : (
+            <>
+              <ResponseStats>
+                <ResponseStat>
+                  <ResponseStatLabel>Responses</ResponseStatLabel>
+                  <ResponseStatValue>{responseData.length}</ResponseStatValue>
+                </ResponseStat>
+                <ResponseStat>
+                  <ResponseStatLabel>Avg. Budget</ResponseStatLabel>
+                  <ResponseStatValue>
+                    ${Math.round(responseData.reduce((sum, r) => sum + (r.form_data?.priceLimit || 0), 0) / responseData.length || 50)}
+                  </ResponseStatValue>
+                </ResponseStat>
+                <ResponseStat>
+                  <ResponseStatLabel>Preferred Time</ResponseStatLabel>
+                  <ResponseStatValue>
+                    {formatTimeOfDay(responseData.reduce((sum, r) => sum + (r.form_data?.timeOfDay || 0), 0) / responseData.length || 12)}
+                  </ResponseStatValue>
+                </ResponseStat>
+              </ResponseStats>
+            
+              <RecommendationsList>
+                {recommendations.map(rec => (
+                  <RecommendationCard key={rec.id}>
+                    <RecommendationImage imageUrl={rec.imageUrl} />
+                    <RecommendationContent>
+                      <RecommendationName>{rec.name}</RecommendationName>
+                      <RecommendationDetails>
+                        <RecommendationDetail>
+                          <RecommendationDetailIcon>💰</RecommendationDetailIcon>
+                          {rec.priceEstimate}
+                        </RecommendationDetail>
+                        <RecommendationDetail>
+                          <RecommendationDetailIcon>📍</RecommendationDetailIcon>
+                          {rec.distance} away
+                        </RecommendationDetail>
+                        <RecommendationDetail>
+                          <RecommendationDetailIcon>🏷️</RecommendationDetailIcon>
+                          {rec.type}
+                        </RecommendationDetail>
+                      </RecommendationDetails>
+                      <RecommendationDescription>
+                        {rec.description}
+                      </RecommendationDescription>
+                    </RecommendationContent>
+                  </RecommendationCard>
+                ))}
+              </RecommendationsList>
+              
+              <ButtonGroup>
+                <BackToGroupButton onClick={() => navigate(`/groups/${groupId}`)}>
+                  Back to Group
+                </BackToGroupButton>
+              </ButtonGroup>
+            </>
+          )}
+        </ResultsCard>
+      </ContentContainer>
+    </PageContainer>
   );
 };
 
-// Styled components
-const Layout = styled.div`
+// The styled components
+const PageContainer = styled.div`
   min-height: 100vh;
-  background-color: #f7f9fc;
+  background-color: #f5f7fa;
 `;
 
 const Header = styled.header`
@@ -358,338 +442,440 @@ const Header = styled.header`
   align-items: center;
   justify-content: space-between;
   padding: 15px 30px;
-  background: white;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  background-color: white;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
 `;
 
 const Logo = styled.div`
-  font-size: 1.5rem;
   font-weight: 700;
+  font-size: 1.5rem;
   background: linear-gradient(to right, #6e8efb, #a777e3);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   cursor: pointer;
 `;
 
+const Navigation = styled.nav`
+  display: flex;
+  gap: 30px;
+  
+  @media (max-width: 768px) {
+    gap: 15px;
+  }
+`;
+
+const NavItem = styled.div`
+  font-weight: 500;
+  position: relative;
+  padding: 5px 0;
+  cursor: pointer;
+  color: ${props => props.active ? '#6e8efb' : '#333'};
+  
+  &:after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 2px;
+    background-color: #6e8efb;
+    transform: scaleX(${props => props.active ? 1 : 0});
+    transition: transform 0.3s ease;
+  }
+
+  &:hover:after {
+    transform: scaleX(1);
+  }
+`;
+
 const UserSection = styled.div`
   display: flex;
   align-items: center;
-  position: relative;
+  gap: 10px;
 `;
 
-const UserAvatar = styled.img`
+const UserName = styled.div`
+  font-weight: 500;
+  color: #333;
+  
+  @media (max-width: 768px) {
+    display: none;
+  }
+`;
+
+const UserAvatar = styled.div`
   width: 40px;
   height: 40px;
   border-radius: 50%;
   overflow: hidden;
   cursor: pointer;
-`;
-
-const ContentWrapper = styled.div`
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 30px 20px;
-`;
-
-const Breadcrumb = styled.div`
-  display: flex;
-  align-items: center;
-  margin-bottom: 20px;
-  color: #666;
-  font-size: 0.9rem;
-`;
-
-const BreadcrumbLink = styled.span`
-  cursor: pointer;
-  
-  &:hover {
-    color: #6e8efb;
-    text-decoration: underline;
-  }
-`;
-
-const BreadcrumbSeparator = styled.span`
-  margin: 0 10px;
-`;
-
-const BreadcrumbCurrent = styled.span`
-  color: #333;
-  font-weight: 600;
-`;
-
-const ResultsTitle = styled.h1`
-  font-size: 1.8rem;
-  color: #333;
-  margin: 0 0 30px;
-`;
-
-const ResultsLayout = styled.div`
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 30px;
-  
-  @media (max-width: 900px) {
-    grid-template-columns: 1fr;
-  }
-`;
-
-const RecommendationsList = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 15px;
-`;
-
-const StyledRecommendationCard = styled.div`
-  display: flex;
-  background: white;
-  border-radius: 12px;
-  overflow: hidden;
-  cursor: pointer;
-  position: relative;
-  border: ${props => props.selected ? '2px solid #6e8efb' : '2px solid transparent'};
-  box-shadow: ${props => props.selected ? '0 5px 20px rgba(110, 142, 251, 0.2)' : '0 2px 10px rgba(0, 0, 0, 0.05)'};
-  transition: all 0.3s ease;
-  
-  &:hover {
-    transform: translateY(-3px);
-    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
-  }
-`;
-
-const RecNumberBadge = styled.div`
-  position: absolute;
-  top: 10px;
-  left: 10px;
-  width: 24px;
-  height: 24px;
-  background: #6e8efb;
-  color: white;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.8rem;
-  font-weight: bold;
-  z-index: 1;
-`;
-
-const RecImage = styled.div`
-  width: 120px;
-  background-size: cover;
-  background-position: center;
   position: relative;
   
-  @media (max-width: 600px) {
-    width: 80px;
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
   }
 `;
 
-const RecImageOverlay = styled.div`
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.1);
-`;
-
-const RecContent = styled.div`
-  padding: 15px;
-  flex: 1;
-`;
-
-const RecName = styled.h3`
-  margin: 0 0 5px;
-  font-size: 1.1rem;
-  color: #333;
-`;
-
-const RecDetails = styled.div`
-  display: flex;
-  align-items: center;
-  color: #666;
-  font-size: 0.85rem;
-  margin-bottom: 8px;
-`;
-
-const RecDetailsDot = styled.span`
-  margin: 0 5px;
-`;
-
-const RecType = styled.span``;
-const RecPrice = styled.span``;
-const RecDistance = styled.span``;
-
-const RecTags = styled.div`
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-`;
-
-const RecTag = styled.span`
-  background: #f0f7ff;
-  color: #6e8efb;
-  font-size: 0.7rem;
-  padding: 3px 8px;
-  border-radius: 12px;
-`;
-
-const MapSection = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 15px;
-`;
-
-const StyledDetailPanel = styled.div`
-  background: white;
-  border-radius: 12px;
-  padding: 20px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
-`;
-
-const DetailHeader = styled.div`
-  margin-bottom: 15px;
-`;
-
-const DetailName = styled.h2`
-  margin: 0 0 5px;
-  font-size: 1.4rem;
-  color: #333;
-`;
-
-const DetailType = styled.div`
-  color: #666;
-  font-size: 0.9rem;
-`;
-
-const DetailDescription = styled.p`
-  color: #444;
-  line-height: 1.6;
-  margin-bottom: 20px;
-`;
-
-const DetailStats = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-bottom: 20px;
-`;
-
-const DetailStat = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 10px;
-`;
-
-const DetailStatIcon = styled.span`
-  font-size: 1.2rem;
-`;
-
-const DetailStatValue = styled.span`
-  color: #555;
-`;
-
-const GetDirectionsButton = styled.button`
+const AvatarPlaceholder = styled.div`
   width: 100%;
-  background: #6e8efb;
+  height: 100%;
+  background: linear-gradient(to right, #6e8efb, #a777e3);
   color: white;
-  border: none;
-  padding: 12px;
-  border-radius: 8px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
-  
-  &:hover {
-    background: #5a7ce0;
-  }
-`;
-
-const AISuggestionContainer = styled.div`
-  background: white;
-  border-radius: 12px;
-  padding: 25px;
-  margin-top: 30px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
-  border-left: 4px solid #a777e3;
-`;
-
-const AISuggestionHeader = styled.div`
   display: flex;
   align-items: center;
-  margin-bottom: 15px;
-`;
-
-const AISuggestionIcon = styled.span`
-  font-size: 1.5rem;
-  margin-right: 12px;
-  color: #a777e3;
-`;
-
-const AISuggestionTitle = styled.h3`
-  margin: 0;
-  font-size: 1.2rem;
-  color: #333;
-`;
-
-const AISuggestionText = styled.p`
-  color: #555;
-  line-height: 1.7;
-  font-size: 1.05rem;
-  margin: 0;
-  font-style: italic;
-`;
-
-const ButtonGroup = styled.div`
-  display: flex;
   justify-content: center;
-  gap: 15px;
-  margin-top: 30px;
+  font-size: 1.2rem;
+  font-weight: bold;
 `;
 
-const BackToGroupButton = styled.button`
-  padding: 12px 25px;
-  border-radius: 8px;
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: pointer;
+const UserMenu = styled.div`
+  position: absolute;
+  top: 45px;
+  right: 0;
   background: white;
-  color: #666;
-  border: 1px solid #ddd;
-  transition: all 0.3s ease;
+  border-radius: 8px;
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+  width: 150px;
+  z-index: 1000;
+  overflow: hidden;
+`;
+
+const UserMenuItem = styled.div`
+  padding: 12px 15px;
+  cursor: pointer;
+  transition: background 0.2s;
   
   &:hover {
     background: #f5f7fa;
   }
 `;
 
-const NewRecommendationButton = styled.button`
-  padding: 12px 25px;
-  border-radius: 8px;
-  font-size: 1rem;
-  font-weight: 600;
+const UserMenuDivider = styled.div`
+  height: 1px;
+  background: #e1e4e8;
+  margin: 5px 0;
+`;
+
+const ContentContainer = styled.main`
+  max-width: 800px;
+  margin: 30px auto;
+  padding: 0 20px;
+`;
+
+const BreadcrumbNav = styled.div`
+  display: flex;
+  align-items: center;
+  margin-bottom: 20px;
+  font-size: 0.9rem;
+`;
+
+const BreadcrumbLink = styled.a`
+  color: #6e8efb;
   cursor: pointer;
-  background: linear-gradient(to right, #6e8efb, #a777e3);
-  color: white;
-  border: none;
-  transition: all 0.3s ease;
   
   &:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 5px 15px rgba(110, 142, 251, 0.3);
+    text-decoration: underline;
   }
+`;
+
+const BreadcrumbSeparator = styled.span`
+  margin: 0 8px;
+  color: #999;
+`;
+
+const BreadcrumbCurrent = styled.span`
+  color: #666;
+  font-weight: 500;
+`;
+
+const ResultsCard = styled.div`
+  background: white;
+  border-radius: 12px;
+  padding: 30px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+`;
+
+const ResultsHeader = styled.div`
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 25px;
+  
+  @media (max-width: 600px) {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 15px;
+  }
+`;
+
+const ResultsTitle = styled.h1`
+  font-size: 1.6rem;
+  font-weight: 600;
+  color: #333;
+  margin: 0;
+`;
+
+const ResultsDescription = styled.p`
+  color: #666;
+  margin-bottom: 30px;
+  line-height: 1.5;
+`;
+
+const WeatherInfo = styled.div`
+  display: flex;
+  align-items: center;
+  color: #666;
+  font-size: 0.9rem;
+  padding: 8px 15px;
+  background: #f7f9fc;
+  border-radius: 20px;
+`;
+
+const WeatherIcon = styled.span`
+  margin-right: 5px;
+  font-size: 1.2rem;
+`;
+
+const WeatherTemp = styled.span`
+  font-weight: 600;
+  margin-right: 5px;
+`;
+
+const WeatherLocation = styled.span`
+  color: #888;
 `;
 
 const LoadingContainer = styled.div`
   display: flex;
-  justify-content: center;
+  flex-direction: column;
   align-items: center;
-  height: 300px;
+  justify-content: center;
+  padding: 50px 0;
 `;
 
-const LoadingText = styled.div`
+const LoadingSpinner = styled.div`
+  width: 40px;
+  height: 40px;
+  border: 3px solid #f3f3f3;
+  border-top: 3px solid #6e8efb;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 15px;
+  
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+`;
+
+const LoadingText = styled.p`
+  color: #666;
+  font-size: 1rem;
+`;
+
+const ResponseStats = styled.div`
+  display: flex;
+  gap: 20px;
+  margin-bottom: 30px;
+  
+  @media (max-width: 600px) {
+    flex-direction: column;
+    gap: 10px;
+  }
+`;
+
+const ResponseStat = styled.div`
+  flex: 1;
+  background: #f7f9fc;
+  border-radius: 8px;
+  padding: 15px 20px;
+  display: flex;
+  flex-direction: column;
+`;
+
+const ResponseStatLabel = styled.div`
+  color: #666;
+  font-size: 0.9rem;
+  margin-bottom: 5px;
+`;
+
+const ResponseStatValue = styled.div`
+  color: #333;
+  font-size: 1.1rem;
+  font-weight: 600;
+`;
+
+const RecommendationsList = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  margin-bottom: 30px;
+`;
+
+const RecommendationCard = styled.div`
+  display: flex;
+  background: white;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  transition: transform 0.3s, box-shadow 0.3s;
+  
+  &:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+  }
+  
+  @media (max-width: 700px) {
+    flex-direction: column;
+  }
+`;
+
+const RecommendationImage = styled.div`
+  width: 200px;
+  min-height: 200px;
+  background-image: url(${props => props.imageUrl});
+  background-size: cover;
+  background-position: center;
+  
+  @media (max-width: 700px) {
+    width: 100%;
+    height: 150px;
+  }
+`;
+
+const RecommendationContent = styled.div`
+  flex: 1;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+`;
+
+const RecommendationName = styled.h3`
+  margin: 0 0 10px;
+  font-size: 1.3rem;
+  color: #333;
+`;
+
+const RecommendationDetails = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 15px;
+`;
+
+const RecommendationDetail = styled.div`
+  display: flex;
+  align-items: center;
+  font-size: 0.9rem;
+  color: #666;
+`;
+
+const RecommendationDetailIcon = styled.span`
+  margin-right: 5px;
+`;
+
+const RecommendationDescription = styled.p`
+  color: #555;
+  margin: 0 0 20px;
+  line-height: 1.5;
+  flex-grow: 1;
+`;
+
+const RecommendationActions = styled.div`
+  display: flex;
+  gap: 10px;
+  
+  @media (max-width: 500px) {
+    flex-direction: column;
+  }
+`;
+
+const RecommendationAction = styled.button`
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s;
+  
+  background: ${props => props.primary ? 'linear-gradient(to right, #6e8efb, #a777e3)' : 'white'};
+  color: ${props => props.primary ? 'white' : '#666'};
+  border: ${props => props.primary ? 'none' : '1px solid #ddd'};
+  
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: ${props => props.primary ? 
+      '0 4px 10px rgba(110, 142, 251, 0.3)' : 
+      '0 4px 10px rgba(0, 0, 0, 0.05)'};
+  }
+`;
+
+const ButtonGroup = styled.div`
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 20px;
+`;
+
+const BackToGroupButton = styled.button`
+  padding: 12px 20px;
+  background: #f0f2f5;
+  color: #333;
+  border: none;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  
+  &:hover {
+    background: #e4e6e9;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08);
+  }
+`;
+
+const ErrorState = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: white;
+  border-radius: 12px;
+  padding: 40px;
+  margin-top: 50px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+  text-align: center;
+`;
+
+const ErrorIcon = styled.div`
+  font-size: 3rem;
+  margin-bottom: 20px;
+`;
+
+const ErrorText = styled.p`
   color: #666;
   font-size: 1.1rem;
+  margin-bottom: 25px;
 `;
 
-export default RecommendationResults; 
+const BackButton = styled.button`
+  background-color: #6e8efb;
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+
+  &:hover {
+    background-color: #5a7ce0;
+  }
+`;
+
+// Make sure to export the component with the correct name!
+export default RecommendationResults;

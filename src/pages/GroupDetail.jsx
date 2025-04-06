@@ -340,16 +340,33 @@ const GroupDetail = () => {
   
   // Function to view hangout results (updated)
   const finishHangout = () => {
-    console.log("Viewing hangout results");
+    console.log("⏩ Viewing hangout results (button clicked)");
+    console.log("⏩ GroupId:", groupId);
+    
     if (!activeHangoutRequest?.id) {
-      console.error("No active hangout request ID");
+      console.error("❌ No active hangout request ID");
       alert("Cannot view results: No active hangout request");
       return;
     }
     
-    navigate(`/groups/${groupId}/recommendations`, {
+    const targetUrl = `/groups/${groupId}/recommendations`;
+    console.log("⏩ Navigating to:", targetUrl);
+    console.log("⏩ With request ID:", activeHangoutRequest.id);
+    console.log("⏩ Navigation method: react-router navigate()");
+    
+    // Try both approaches - for debugging
+    console.log("⏩ Attempting navigation...");
+    navigate(targetUrl, {
       state: { requestId: activeHangoutRequest.id }
     });
+    
+    // After a delay, check if navigation worked
+    setTimeout(() => {
+      console.log("⏩ Current location after navigation attempt:", window.location.pathname);
+      if (window.location.pathname !== targetUrl) {
+        console.error("❌ Navigation may have failed - paths don't match");
+      }
+    }, 500);
   };
   
   // Function to handle navigation
@@ -366,6 +383,21 @@ const GroupDetail = () => {
       console.error('Error signing out:', error);
     }
   };
+  
+  // Add this to your GroupDetail.jsx to see the issue
+  useEffect(() => {
+    console.log("GroupDetail mounted with groupId:", groupId);
+    // Log available routes - just for debugging
+    console.log("Current routes:", window.location.pathname);
+    
+    // Check if RecommendationResults component exists
+    try {
+      const RecommendationResultsTest = require('../pages/RecommendationResults.jsx').default;
+      console.log("RecommendationResults component loaded successfully:", !!RecommendationResultsTest);
+    } catch (err) {
+      console.error("Error loading RecommendationResults component:", err.message);
+    }
+  }, [groupId]);
   
   // Error display
   if (error) {
