@@ -8,6 +8,8 @@ import Friends from './pages/Friends';
 import Groups from './pages/Groups';
 import Map from './pages/Map';
 import Login from './pages/Login';
+import ViewGroup from './pages/ViewGroup';
+import Hangout from './pages/Hangout';
 import { supabase } from './utils/supabaseClient';
 
 function App() {
@@ -80,6 +82,8 @@ function App() {
         <Route path="/friends" element={!session ? <Navigate to="/login" replace /> : <Friends />} />
         <Route path="/groups" element={!session ? <Navigate to="/login" replace /> : <Groups />} />
         <Route path="/map" element={!session ? <Navigate to="/login" replace /> : <Map />} />
+        <Route path="/group/:groupId" element={!session ? <Navigate to="/login" replace /> : <ViewGroup />} />
+        <Route path="/hangout/:hangoutId" element={!session ? <Navigate to="/login" replace /> : <Hangout />} />
       </Routes>
     </Router>
   );

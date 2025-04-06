@@ -228,9 +228,7 @@ const Groups = () => {
 
   // Handle view group
   const handleViewGroup = (groupId) => {
-    // Will implement later
-    alert(`View group with ID: ${groupId}`);
-    // navigate(`/groups/${groupId}`);
+    navigate(`/group/${groupId}`);
   };
 
   // Handle sign out
