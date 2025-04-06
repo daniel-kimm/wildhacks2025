@@ -7,7 +7,7 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 import '../utils/mapboxStyles.css';
 
 // Set Mapbox API key
-mapboxgl.accessToken = 'pk.eyJ1Ijoiem91ZHluYXN0eSIsImEiOiJjbTk0cnhqa3QwdzNsMnJweWQ4dmhxanVwIn0.cNqDoYHQZqoQvc16RejvsQ';
+mapboxgl.accessToken = 'pk.eyJ1Ijoiem91ZHluYXN0eSIsImEiOiJjbTk1MHBkanIxM2JxMmluN3NyNnNidTI5In0.1LL1jCv4LMiOLUoLgw_77g';
 
 const Map = () => {
   const navigate = useNavigate();
@@ -18,11 +18,12 @@ const Map = () => {
   const [lastUpdated, setLastUpdated] = useState(new Date());
   const refreshIntervalRef = useRef(null);
   const [mapSupported, setMapSupported] = useState(true);
+  const [locationLoading, setLocationLoading] = useState(true);
   
   const [user, setUser] = useState({ 
     name: 'User',
     avatar: 'https://via.placeholder.com/40',
-    location: { longitude: -87.6298, latitude: 41.8781 } // Default to Chicago
+    location: { longitude: -87.6298, latitude: 41.8781 } // Default to Chicago initially
   });
   const [friends, setFriends] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -86,6 +87,45 @@ const Map = () => {
     }
   }, []);
 
+  // Get user's geolocation
+  useEffect(() => {
+    const getUserLocation = () => {
+      if (navigator.geolocation) {
+        setLocationLoading(true);
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            const { longitude, latitude } = position.coords;
+            setUser(prevUser => ({
+              ...prevUser,
+              location: { longitude, latitude }
+            }));
+            setLocationLoading(false);
+            
+            // If map is already loaded, update its center
+            if (map.current) {
+              map.current.setCenter([longitude, latitude]);
+            }
+          },
+          (error) => {
+            console.error("Geolocation error:", error);
+            setLocationLoading(false);
+            // Keep default Chicago coordinates if there's an error
+          },
+          { 
+            enableHighAccuracy: true, 
+            timeout: 10000, 
+            maximumAge: 0 
+          }
+        );
+      } else {
+        setLocationLoading(false);
+        console.log("Geolocation not supported by this browser");
+      }
+    };
+
+    getUserLocation();
+  }, []);
+
   // Load user data and friends on component mount
   useEffect(() => {
     const loadUserData = async () => {
@@ -95,12 +135,12 @@ const Map = () => {
       if (session && session.user) {
         const { user: authUser } = session;
         
-        // Set user data from Supabase auth
-        setUser({
+        // Set user data from Supabase auth, but keep the location from geolocation
+        setUser(prevUser => ({
+          ...prevUser,
           name: authUser.user_metadata?.full_name || 'User',
           avatar: authUser.user_metadata?.avatar_url || 'https://via.placeholder.com/40',
-          location: { longitude: -87.6298, latitude: 41.8781 } // Default location
-        });
+        }));
       } else {
         // Fallback to localStorage
         const savedUserData = localStorage.getItem('userData');
@@ -137,7 +177,11 @@ const Map = () => {
 
   // Function to refresh friend locations
   const refreshLocations = () => {
-    setIsLoading(true);
+    // Show brief loading indicator but don't hide the map
+    const refreshButton = document.querySelector('.refresh-button');
+    if (refreshButton) {
+      refreshButton.classList.add('refreshing');
+    }
     
     // In a real app, you would fetch updated locations from your API
     // For this demo, we'll simulate movement by slightly adjusting coordinates
@@ -152,21 +196,26 @@ const Map = () => {
       }));
       
       setFriends(updatedFriends);
-      setIsLoading(false);
       setLastUpdated(new Date());
+      
+      // Remove spinning indicator
+      if (refreshButton) {
+        refreshButton.classList.remove('refreshing');
+      }
     }, 800);
   };
 
-  // Initialize Mapbox when container is available
+  // Initialize Mapbox when container is available and user location is fetched
   useEffect(() => {
     console.log("Initializing map:", {
       containerExists: !!mapContainer.current,
       mapExists: !!map.current,
       userLocation: user.location,
-      mapSupported: mapSupported
+      mapSupported: mapSupported,
+      locationLoading: locationLoading
     });
     
-    if (mapContainer.current && !map.current && mapSupported) {
+    if (mapContainer.current && !map.current && mapSupported && !locationLoading) {
       try {
         map.current = new mapboxgl.Map({
           container: mapContainer.current,
@@ -204,7 +253,7 @@ const Map = () => {
         map.current = null;
       }
     };
-  }, [user.location, mapSupported]);
+  }, [user.location, mapSupported, locationLoading]);
 
   // Add markers to the map when it's loaded and when friends change
   useEffect(() => {
@@ -345,7 +394,7 @@ const Map = () => {
             <ControlsRight>
               <LastUpdateInfo>
                 Updated {lastUpdated.toLocaleTimeString()} 
-                <RefreshButton onClick={refreshLocations}>
+                <RefreshButton onClick={refreshLocations} className="refresh-button">
                   <RefreshIcon>🔄</RefreshIcon>
                 </RefreshButton>
               </LastUpdateInfo>
@@ -368,9 +417,9 @@ const Map = () => {
           </MapControls>
           
           <MapContainer>
-            {isLoading ? (
+            {isLoading || locationLoading ? (
               <LoadingState>
-                <LoadingText>Loading map...</LoadingText>
+                <LoadingText>{locationLoading ? 'Getting your location...' : 'Loading map...'}</LoadingText>
               </LoadingState>
             ) : mapError ? (
               <MapErrorContainer>
@@ -565,7 +614,7 @@ const UserAvatar = styled.div`
 
 const ContentContainer = styled.div`
   display: grid;
-  grid-template-columns: 1fr 350px;
+  grid-template-columns: 3fr 1fr;
   gap: 20px;
   padding: 20px;
   max-width: 1400px;
@@ -581,6 +630,7 @@ const MapSection = styled.div`
   border-radius: 12px;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
   overflow: hidden;
+  width: 100%;
 `;
 
 const MapControls = styled.div`
@@ -612,6 +662,10 @@ const LastUpdateInfo = styled.div`
   color: #666;
 `;
 
+const RefreshIcon = styled.span`
+  font-size: 1rem;
+`;
+
 const RefreshButton = styled.button`
   background: none;
   border: none;
@@ -627,10 +681,15 @@ const RefreshButton = styled.button`
   &:hover {
     background-color: #f0f2f5;
   }
-`;
-
-const RefreshIcon = styled.span`
-  font-size: 1rem;
+  
+  &.refreshing ${RefreshIcon} {
+    animation: spin 1s linear infinite;
+  }
+  
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
 `;
 
 const ToggleView = styled.div`
@@ -749,6 +808,14 @@ const SidePanel = styled.div`
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  width: 100%;
+  max-width: 350px;
+  justify-self: end;
+  
+  @media (max-width: 1024px) {
+    max-width: 100%;
+    justify-self: center;
+  }
 `;
 
 const SidePanelHeader = styled.div`

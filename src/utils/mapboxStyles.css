@@ -1,4 +1,4 @@
-/* Mapbox specific styles /
+/* Mapbox specific styles */
 .mapboxgl-map {
   width: 100% !important;
   height: 100% !important;
@@ -37,7 +37,7 @@
   padding: 0;
 }
 
-/ Map marker styles */
+/* Map marker styles */
 .marker-avatar {
     width: 40px;
     height: 40px;
