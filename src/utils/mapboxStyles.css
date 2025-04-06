@@ -1,12 +1,83 @@
-/* Mapbox specific styles /
+/* Mapbox container styles */
 .mapboxgl-map {
-  width: 100% !important;
-  height: 100% !important;
+  width: 100%;
+  height: 100%;
   position: absolute;
   top: 0;
-  bottom: 0;
   left: 0;
-  right: 0;
+}
+
+/* Marker styles */
+.marker-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 3px solid white;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-weight: bold;
+  color: white;
+}
+
+.user-marker {
+  background-color: #4caf50;
+  border-color: #4caf50;
+}
+
+.friend-marker {
+  background-color: #4a90e2;
+  border-color: #4a90e2;
+}
+
+.activity-marker {
+  background-color: #f0f0f0;
+  border-color: #f0f0f0;
+  color: #333;
+  font-size: 1.2rem;
+}
+
+.marker-label {
+  background-color: white;
+  color: #333;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.75rem;
+  margin-top: 5px;
+  font-weight: 600;
+  white-space: nowrap;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+/* Marker containers */
+.user-marker-container,
+.friend-marker-container,
+.activity-marker-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: pointer;
+}
+
+.user-marker-container {
+  z-index: 2;
+}
+
+/* Hover effects */
+.friend-marker-container:hover .friend-marker,
+.activity-marker-container:hover .activity-marker {
+  transform: scale(1.1);
+  transition: transform 0.2s ease;
+}
+
+/* Selected state */
+.friend-marker-container.selected .friend-marker,
+.activity-marker-container.selected .activity-marker {
+  border-color: #ff9800;
+  box-shadow: 0 0 0 2px #ff9800, 0 2px 5px rgba(0, 0, 0, 0.2);
+  transform: scale(1.1);
 }
 
 .mapboxgl-canvas {
@@ -36,45 +107,3 @@
   margin: 0;
   padding: 0;
 }
-
-/ Map marker styles */
-.marker-avatar {
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    overflow: hidden;
-    border: 3px solid white;
-    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
-  }
-  
-  .friend-marker {
-    background: white;
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
-  }
-  
-  .user-marker {
-    border-color: #4caf50;
-    box-shadow: 0 0 0 2px #4caf50, 0 2px 5px rgba(0, 0, 0, 0.2);
-  }
-  
-  .friend-marker-container.selected .friend-marker {
-    border-color: #6e8efb;
-    box-shadow: 0 0 0 2px #6e8efb, 0 2px 5px rgba(0, 0, 0, 0.2);
-    transform: scale(1.1);
-  }
-  
-  .friend-marker-container:hover .friend-marker {
-    transform: scale(1.1);
-  }
-  
-  .marker-label {
-    background-color: white;
-    color: #333;
-    padding: 2px 8px;   
-    border-radius: 10px;
-    font-size: 0.75rem;
-    margin-top: 5px;
-    font-weight: 600;
-    white-space: nowrap;
-    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-  }

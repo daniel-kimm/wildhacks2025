@@ -5,6 +5,7 @@ import { supabase } from '../utils/supabaseClient';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import '../utils/mapboxStyles.css';
+import { findActivitiesNearGroup } from '../utils/mapboxClient';
 
 // Set Mapbox API key
 mapboxgl.accessToken = 'pk.eyJ1Ijoiem91ZHluYXN0eSIsImEiOiJjbTk0cnhqa3QwdzNsMnJweWQ4dmhxanVwIn0.cNqDoYHQZqoQvc16RejvsQ';
@@ -28,6 +29,13 @@ const Map = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [selectedFriend, setSelectedFriend] = useState(null);
   const [showAllFriends, setShowAllFriends] = useState(true);
+  
+  // New state for activities
+  const [activities, setActivities] = useState([]);
+  const [isLoadingActivities, setIsLoadingActivities] = useState(false);
+  const [selectedActivity, setSelectedActivity] = useState(null);
+  const [searchRadius, setSearchRadius] = useState(5000); // Default 5km
+  const [selectedCategories, setSelectedCategories] = useState(['restaurant', 'cafe', 'park', 'museum', 'entertainment']);
   
   // Sample friends data with actual coordinates
   const sampleFriends = [
@@ -248,16 +256,9 @@ const Map = () => {
           el.className = 'friend-marker-container';
           el.addEventListener('click', () => handleSelectFriend(friend));
           
-          if (selectedFriend && selectedFriend.id === friend.id) {
-            el.classList.add('selected');
-          }
-          
           const avatar = document.createElement('div');
           avatar.className = 'marker-avatar friend-marker';
-          const img = document.createElement('img');
-          img.src = `https://via.placeholder.com/40?text=${friend.avatar}`;
-          img.alt = friend.name;
-          avatar.appendChild(img);
+          avatar.textContent = friend.avatar;
           
           const label = document.createElement('div');
           label.className = 'marker-label';
@@ -270,696 +271,561 @@ const Map = () => {
             .setLngLat([friend.location.longitude, friend.location.latitude])
             .addTo(map.current);
         });
-      } catch (err) {
-        console.error("Error adding markers:", err);
+        
+        // Add activity markers if they exist
+        if (activities.length > 0) {
+          activities.forEach(activity => {
+            const el = document.createElement('div');
+            el.className = 'activity-marker-container';
+            el.addEventListener('click', () => handleSelectActivity(activity));
+            
+            const icon = document.createElement('div');
+            icon.className = 'marker-avatar activity-marker';
+            icon.innerHTML = getActivityIcon(activity.category);
+            
+            const label = document.createElement('div');
+            label.className = 'marker-label';
+            label.textContent = activity.text;
+            
+            el.appendChild(icon);
+            el.appendChild(label);
+            
+            new mapboxgl.Marker(el)
+              .setLngLat(activity.center)
+              .addTo(map.current);
+          });
+        }
+      } catch (error) {
+        console.error("Error adding markers:", error);
       }
     }
-  }, [mapLoaded, friends, selectedFriend, user]);
+  }, [mapLoaded, friends, activities]);
 
-  // Handle navigations
-  const handleNavigate = (path) => {
-    navigate(path);
-  };
-
-  // Handle friend selection
+  // Function to handle friend selection
   const handleSelectFriend = (friend) => {
     setSelectedFriend(friend);
-    setShowAllFriends(false);
     
-    // Center map on selected friend
+    // Pan to friend's location
     if (map.current) {
       map.current.flyTo({
         center: [friend.location.longitude, friend.location.latitude],
         zoom: 15,
-        speed: 1.2
+        duration: 1000
       });
     }
   };
 
-  // Handle show all friends
-  const handleShowAllFriends = () => {
-    setSelectedFriend(null);
-    setShowAllFriends(true);
+  // Function to handle activity selection
+  const handleSelectActivity = (activity) => {
+    setSelectedActivity(activity);
     
-    // Fit map to show all friends
-    if (map.current && friends.length > 0) {
-      const bounds = new mapboxgl.LngLatBounds();
-      
-      // Add user location to bounds
-      bounds.extend([user.location.longitude, user.location.latitude]);
-      
-      // Add all friend locations to bounds
-      friends.forEach(friend => {
-        bounds.extend([friend.location.longitude, friend.location.latitude]);
+    // Pan to activity location
+    if (map.current) {
+      map.current.flyTo({
+        center: activity.center,
+        zoom: 15,
+        duration: 1000
       });
+    }
+  };
+
+  // Function to get icon for activity category
+  const getActivityIcon = (category) => {
+    switch (category) {
+      case 'restaurant':
+        return '🍽️';
+      case 'cafe':
+        return '☕';
+      case 'park':
+        return '🌳';
+      case 'museum':
+        return '🏛️';
+      case 'entertainment':
+        return '🎮';
+      default:
+        return '📍';
+    }
+  };
+
+  // Function to find activities near the group
+  const findActivitiesNearGroup = async () => {
+    try {
+      setIsLoadingActivities(true);
       
-      map.current.fitBounds(bounds, {
-        padding: 50,
-        maxZoom: 15
-      });
+      // Get all locations (user + friends)
+      const allLocations = [
+        { latitude: user.location.latitude, longitude: user.location.longitude },
+        ...friends.map(friend => ({
+          latitude: friend.location.latitude,
+          longitude: friend.location.longitude
+        }))
+      ];
+      
+      // Find activities near the group
+      const nearbyActivities = await findActivitiesNearGroup(
+        allLocations,
+        searchRadius,
+        selectedCategories
+      );
+      
+      setActivities(nearbyActivities);
+      setSelectedActivity(null);
+      
+      // If we found activities, pan to the center of the group
+      if (nearbyActivities.length > 0 && map.current) {
+        const center = calculateCenterPoint(allLocations);
+        map.current.flyTo({
+          center: [center.longitude, center.latitude],
+          zoom: 12,
+          duration: 1000
+        });
+      }
+    } catch (error) {
+      console.error('Error finding activities:', error);
+      setMapError('Failed to find activities. Please try again.');
+    } finally {
+      setIsLoadingActivities(false);
+    }
+  };
+
+  // Helper function to calculate the center point of multiple locations
+  const calculateCenterPoint = (locations) => {
+    if (!locations || locations.length === 0) {
+      return { latitude: 0, longitude: 0 };
+    }
+    
+    const sum = locations.reduce((acc, loc) => ({
+      latitude: acc.latitude + loc.latitude,
+      longitude: acc.longitude + loc.longitude
+    }), { latitude: 0, longitude: 0 });
+    
+    return {
+      latitude: sum.latitude / locations.length,
+      longitude: sum.longitude / locations.length
+    };
+  };
+
+  // Function to handle category toggle
+  const toggleCategory = (category) => {
+    setSelectedCategories(prev => {
+      if (prev.includes(category)) {
+        return prev.filter(c => c !== category);
+      } else {
+        return [...prev, category];
+      }
+    });
+  };
+
+  // Function to handle radius change
+  const handleRadiusChange = (e) => {
+    setSearchRadius(parseInt(e.target.value));
+  };
+
+  // Function to format distance in meters to a human-readable string
+  const formatDistance = (meters) => {
+    if (meters < 1000) {
+      return `${Math.round(meters)}m`;
+    } else {
+      return `${(meters / 1000).toFixed(1)}km`;
     }
   };
 
   return (
-    <PageContainer>
-      <Header>
-        <Logo onClick={() => handleNavigate('/dashboard')}>HangoutAI</Logo>
-        <Navigation>
-          <NavItem onClick={() => handleNavigate('/dashboard')}>Home</NavItem>
-          <NavItem onClick={() => handleNavigate('/friends')}>Friends</NavItem>
-          <NavItem onClick={() => handleNavigate('/groups')}>Groups</NavItem>
-          <NavItem active onClick={() => handleNavigate('/map')}>Map</NavItem>
-        </Navigation>
-        <UserSection>
-          <UserName>{user.name}</UserName>
-          <UserAvatar>
-            <img src={user.avatar} alt="User avatar" />
-          </UserAvatar>
-        </UserSection>
-      </Header>
-
-      <ContentContainer>
-        <MapSection>
-          <MapControls>
-            <MapTitle>Friend Locations</MapTitle>
-            <ControlsRight>
-              <LastUpdateInfo>
-                Updated {lastUpdated.toLocaleTimeString()} 
-                <RefreshButton onClick={refreshLocations}>
-                  <RefreshIcon>🔄</RefreshIcon>
-                </RefreshButton>
-              </LastUpdateInfo>
-              <ToggleView>
-                <ViewButton 
-                  active={showAllFriends} 
-                  onClick={handleShowAllFriends}
-                >
-                  All Friends
-                </ViewButton>
-                {selectedFriend && (
-                  <ViewButton 
-                    active={!showAllFriends}
+    <MapContainer>
+      <MapHeader>
+        <Title>Find Activities Near Your Group</Title>
+        <Controls>
+          <SearchControls>
+            <RadiusControl>
+              <label htmlFor="radius">Search Radius: {formatDistance(searchRadius)}</label>
+              <input
+                type="range"
+                id="radius"
+                min="1000"
+                max="20000"
+                step="1000"
+                value={searchRadius}
+                onChange={handleRadiusChange}
+              />
+            </RadiusControl>
+            <CategoryControls>
+              <CategoryLabel>Categories:</CategoryLabel>
+              <CategoryButtons>
+                {['restaurant', 'cafe', 'park', 'museum', 'entertainment'].map(category => (
+                  <CategoryButton
+                    key={category}
+                    active={selectedCategories.includes(category)}
+                    onClick={() => toggleCategory(category)}
                   >
-                    {selectedFriend.name}
-                  </ViewButton>
-                )}
-              </ToggleView>
-            </ControlsRight>
-          </MapControls>
-          
-          <MapContainer>
-            {isLoading ? (
-              <LoadingState>
-                <LoadingText>Loading map...</LoadingText>
-              </LoadingState>
-            ) : mapError ? (
-              <MapErrorContainer>
-                <MapErrorMessage>
-                  Error loading map: {mapError}
-                </MapErrorMessage>
-                <MapErrorHint>
-                  Please check your internet connection and verify API key is valid.
-                </MapErrorHint>
-              </MapErrorContainer>
-            ) : !mapSupported ? (
-              <MapErrorContainer>
-                <MapErrorMessage>
-                  Your browser doesn't support Mapbox GL
-                </MapErrorMessage>
-                <MapErrorHint>
-                  Please try using a modern browser like Chrome, Firefox, or Safari.
-                </MapErrorHint>
-              </MapErrorContainer>
-            ) : (
-              <MapboxContainer id="mapbox-container" ref={mapContainer} className="mapboxgl-map" />
-            )}
-          </MapContainer>
-        </MapSection>
-        
-        <SidePanel>
-          <SidePanelHeader>
-            {selectedFriend ? (
-              <SidePanelTitle>{selectedFriend.name}</SidePanelTitle>
-            ) : (
-              <SidePanelTitle>Nearby Friends</SidePanelTitle>
-            )}
-          </SidePanelHeader>
-          
-          <SidePanelContent>
-            {selectedFriend ? (
-              <FriendDetail>
-                <FriendDetailHeader>
-                  <LargeFriendAvatar>
-                    <img src={`https://via.placeholder.com/60?text=${selectedFriend.avatar}`} alt={selectedFriend.name} />
-                  </LargeFriendAvatar>
-                  <FriendDetailInfo>
-                    <FriendDetailName>{selectedFriend.name}</FriendDetailName>
-                    <FriendLocation>
-                      📍 {selectedFriend.place}
-                    </FriendLocation>
-                    <LastUpdated>
-                      Last updated: {selectedFriend.lastUpdated}
-                    </LastUpdated>
-                  </FriendDetailInfo>
-                </FriendDetailHeader>
-                
-                <FriendInterests>
-                  <DetailTitle>Interests</DetailTitle>
-                  <InterestTags>
-                    {selectedFriend.interests.map((interest, index) => (
-                      <InterestTag key={index}>{interest}</InterestTag>
-                    ))}
-                  </InterestTags>
-                </FriendInterests>
-                
-                <ActionButtons>
-                  <MessageButton>
-                    <ButtonIcon>✉️</ButtonIcon>
-                    Message
-                  </MessageButton>
-                  <DirectionsButton>
-                    <ButtonIcon>🧭</ButtonIcon>
-                    Directions
-                  </DirectionsButton>
-                </ActionButtons>
-              </FriendDetail>
-            ) : (
-              <FriendsList>
-                {friends.map(friend => (
-                  <FriendListItem 
-                    key={friend.id}
-                    onClick={() => handleSelectFriend(friend)}
-                  >
-                    <FriendListAvatar>
-                      <img src={`https://via.placeholder.com/40?text=${friend.avatar}`} alt={friend.name} />
-                    </FriendListAvatar>
-                    <FriendListInfo>
-                      <FriendListName>{friend.name}</FriendListName>
-                      <FriendListLocation>
-                        📍 {friend.place}
-                      </FriendListLocation>
-                      <FriendListTime>
-                        Updated {friend.lastUpdated}
-                      </FriendListTime>
-                    </FriendListInfo>
-                  </FriendListItem>
+                    {getActivityIcon(category)} {category}
+                  </CategoryButton>
                 ))}
-              </FriendsList>
-            )}
-          </SidePanelContent>
-        </SidePanel>
-      </ContentContainer>
-    </PageContainer>
+              </CategoryButtons>
+            </CategoryControls>
+            <SearchButton
+              onClick={findActivitiesNearGroup}
+              disabled={isLoadingActivities}
+            >
+              {isLoadingActivities ? 'Searching...' : 'Find Activities'}
+            </SearchButton>
+          </SearchControls>
+        </Controls>
+      </MapHeader>
+      
+      <MapContent>
+        <MapContainer ref={mapContainer} />
+        
+        {mapError && (
+          <ErrorMessage>
+            {mapError}
+          </ErrorMessage>
+        )}
+        
+        {!mapSupported && (
+          <ErrorMessage>
+            Your browser doesn't support Mapbox GL. Please try a different browser.
+          </ErrorMessage>
+        )}
+        
+        {isLoading && (
+          <LoadingOverlay>
+            <LoadingSpinner />
+            <LoadingText>Loading map data...</LoadingText>
+          </LoadingOverlay>
+        )}
+      </MapContent>
+      
+      <Sidebar>
+        <SidebarSection>
+          <SectionTitle>Your Friends</SectionTitle>
+          <FriendsList>
+            {friends.map(friend => (
+              <FriendItem
+                key={friend.id}
+                selected={selectedFriend?.id === friend.id}
+                onClick={() => handleSelectFriend(friend)}
+              >
+                <FriendAvatar>{friend.avatar}</FriendAvatar>
+                <FriendInfo>
+                  <FriendName>{friend.name}</FriendName>
+                  <FriendLocation>{friend.place}</FriendLocation>
+                  <FriendLastUpdated>Last updated: {friend.lastUpdated}</FriendLastUpdated>
+                </FriendInfo>
+              </FriendItem>
+            ))}
+          </FriendsList>
+        </SidebarSection>
+        
+        {activities.length > 0 && (
+          <SidebarSection>
+            <SectionTitle>Nearby Activities</SectionTitle>
+            <ActivitiesList>
+              {activities.map(activity => (
+                <ActivityItem
+                  key={activity.id}
+                  selected={selectedActivity?.id === activity.id}
+                  onClick={() => handleSelectActivity(activity)}
+                >
+                  <ActivityIcon>{getActivityIcon(activity.category)}</ActivityIcon>
+                  <ActivityInfo>
+                    <ActivityName>{activity.text}</ActivityName>
+                    <ActivityDistance>
+                      {formatDistance(activity.distance)} away
+                    </ActivityDistance>
+                  </ActivityInfo>
+                </ActivityItem>
+              ))}
+            </ActivitiesList>
+          </SidebarSection>
+        )}
+      </Sidebar>
+    </MapContainer>
   );
 };
 
-// Styled Components
-const PageContainer = styled.div`
-  min-height: 100vh;
-  background-color: #f5f7fa;
+// Styled components
+const MapContainer = styled.div`
   display: flex;
   flex-direction: column;
-`;
-
-const Header = styled.header`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 15px 30px;
-  background: white;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
-  position: sticky;
-  top: 0;
-  z-index: 100;
-`;
-
-const Logo = styled.div`
-  font-size: 1.5rem;
-  font-weight: 700;
-  color: #6e8efb;
-  cursor: pointer;
-`;
-
-const Navigation = styled.nav`
-  display: flex;
-  gap: 30px;
-  
-  @media (max-width: 768px) {
-    gap: 15px;
-  }
-`;
-
-const NavItem = styled.a`
-  color: ${props => props.active ? '#6e8efb' : '#666'};
-  font-weight: ${props => props.active ? '600' : '500'};
-  text-decoration: none;
-  padding: 5px 0;
-  cursor: pointer;
+  height: 100vh;
+  width: 100%;
   position: relative;
-
-  &:after {
-    content: '';
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    width: 100%;
-    height: 2px;
-    background-color: #6e8efb;
-    transform: scaleX(${props => props.active ? 1 : 0});
-    transition: transform 0.3s ease;
-  }
-
-  &:hover:after {
-    transform: scaleX(1);
-  }
 `;
 
-const UserSection = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 10px;
+const MapHeader = styled.div`
+  padding: 1rem;
+  background-color: #fff;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  z-index: 1;
 `;
 
-const UserName = styled.div`
-  font-weight: 500;
+const Title = styled.h1`
+  margin: 0 0 1rem 0;
+  font-size: 1.5rem;
   color: #333;
-  
-  @media (max-width: 768px) {
-    display: none;
-  }
 `;
 
-const UserAvatar = styled.div`
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  overflow: hidden;
-  cursor: pointer;
-  
-  img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-`;
-
-const ContentContainer = styled.div`
-  display: grid;
-  grid-template-columns: 1fr 350px;
-  gap: 20px;
-  padding: 20px;
-  max-width: 1400px;
-  margin: 0 auto;
-  
-  @media (max-width: 1024px) {
-    grid-template-columns: 1fr;
-  }
-`;
-
-const MapSection = styled.div`
-  background: white;
-  border-radius: 12px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
-  overflow: hidden;
-`;
-
-const MapControls = styled.div`
-  padding: 15px 20px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border-bottom: 1px solid #eee;
-`;
-
-const MapTitle = styled.h2`
-  font-size: 1.25rem;
-  font-weight: 600;
-  color: #333;
-  margin: 0;
-`;
-
-const ControlsRight = styled.div`
+const Controls = styled.div`
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
-  gap: 5px;
+  gap: 1rem;
 `;
 
-const LastUpdateInfo = styled.div`
+const SearchControls = styled.div`
   display: flex;
-  align-items: center;
-  font-size: 0.8rem;
+  flex-direction: column;
+  gap: 1rem;
+`;
+
+const RadiusControl = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  
+  label {
+    font-size: 0.9rem;
+    color: #666;
+  }
+  
+  input {
+    width: 100%;
+  }
+`;
+
+const CategoryControls = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+`;
+
+const CategoryLabel = styled.div`
+  font-size: 0.9rem;
   color: #666;
 `;
 
-const RefreshButton = styled.button`
-  background: none;
-  border: none;
+const CategoryButtons = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+`;
+
+const CategoryButton = styled.button`
+  padding: 0.5rem 1rem;
+  border-radius: 20px;
+  border: 1px solid ${props => props.active ? '#4a90e2' : '#ddd'};
+  background-color: ${props => props.active ? '#e6f2ff' : '#fff'};
+  color: ${props => props.active ? '#4a90e2' : '#666'};
   cursor: pointer;
-  margin-left: 5px;
+  font-size: 0.9rem;
   display: flex;
   align-items: center;
-  justify-content: center;
-  padding: 2px;
-  border-radius: 50%;
+  gap: 0.5rem;
+  
+  &:hover {
+    background-color: ${props => props.active ? '#d9ecff' : '#f5f5f5'};
+  }
+`;
+
+const SearchButton = styled.button`
+  padding: 0.75rem 1.5rem;
+  background-color: #4a90e2;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 1rem;
+  cursor: pointer;
   transition: background-color 0.2s;
   
   &:hover {
-    background-color: #f0f2f5;
+    background-color: #3a7bc8;
   }
-`;
-
-const RefreshIcon = styled.span`
-  font-size: 1rem;
-`;
-
-const ToggleView = styled.div`
-  display: flex;
-  gap: 10px;
-`;
-
-const ViewButton = styled.button`
-  background: ${props => props.active ? '#6e8efb' : '#f0f2f5'};
-  color: ${props => props.active ? 'white' : '#666'};
-  border: none;
-  border-radius: 6px;
-  padding: 6px 12px;
-  font-size: 0.875rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s ease;
   
-  &:hover {
-    background: ${props => props.active ? '#5d7dea' : '#e4e6e9'};
+  &:disabled {
+    background-color: #a0c3e8;
+    cursor: not-allowed;
   }
 `;
 
-const MapContainer = styled.div`
+const MapContent = styled.div`
+  flex: 1;
   position: relative;
-  height: calc(100vh - 220px);
-  min-height: 400px;
-  width: 100%;
 `;
 
-const MapboxContainer = styled.div`
-  width: 100%;
-  height: 100%;
+const ErrorMessage = styled.div`
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background-color: rgba(255, 0, 0, 0.8);
+  color: white;
+  padding: 1rem;
+  border-radius: 4px;
+  z-index: 10;
+`;
+
+const LoadingOverlay = styled.div`
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  
-  /* Custom Mapbox marker styles */
-  .friend-marker-container, .user-marker-container {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    cursor: pointer;
-  }
-  
-  .user-marker-container {
-    z-index: 2;
-  }
-  
-  .marker-avatar {
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    overflow: hidden;
-    border: 3px solid white;
-    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
-  }
-  
-  .friend-marker {
-    background: white;
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
-  }
-  
-  .user-marker {
-    border-color: #4caf50;
-    box-shadow: 0 0 0 2px #4caf50, 0 2px 5px rgba(0, 0, 0, 0.2);
-  }
-  
-  .friend-marker-container.selected .friend-marker {
-    border-color: #6e8efb;
-    box-shadow: 0 0 0 2px #6e8efb, 0 2px 5px rgba(0, 0, 0, 0.2);
-    transform: scale(1.1);
-  }
-  
-  .friend-marker-container:hover .friend-marker {
-    transform: scale(1.1);
-  }
-  
-  .marker-avatar img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-  
-  .marker-label {
-    background-color: white;
-    color: #333;
-    padding: 2px 8px;
-    border-radius: 10px;
-    font-size: 0.75rem;
-    margin-top: 5px;
-    font-weight: 600;
-    white-space: nowrap;
-    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-  }
-`;
-
-const LoadingState = styled.div`
+  background-color: rgba(255, 255, 255, 0.7);
   display: flex;
+  flex-direction: column;
   justify-content: center;
   align-items: center;
-  height: 100%;
+  z-index: 5;
+`;
+
+const LoadingSpinner = styled.div`
+  width: 40px;
+  height: 40px;
+  border: 4px solid rgba(0, 0, 0, 0.1);
+  border-radius: 50%;
+  border-top-color: #4a90e2;
+  animation: spin 1s ease-in-out infinite;
+  
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
 `;
 
 const LoadingText = styled.div`
-  color: #666;
+  margin-top: 1rem;
+  color: #333;
   font-size: 1rem;
 `;
 
-const SidePanel = styled.div`
-  background: white;
-  border-radius: 12px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
-  overflow: hidden;
+const Sidebar = styled.div`
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 300px;
+  height: 100%;
+  background-color: white;
+  box-shadow: -2px 0 4px rgba(0, 0, 0, 0.1);
+  z-index: 2;
+  overflow-y: auto;
+  padding: 1rem;
   display: flex;
   flex-direction: column;
+  gap: 1rem;
 `;
 
-const SidePanelHeader = styled.div`
-  padding: 15px 20px;
-  border-bottom: 1px solid #eee;
+const SidebarSection = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 `;
 
-const SidePanelTitle = styled.h2`
-  font-size: 1.25rem;
-  font-weight: 600;
-  color: #333;
+const SectionTitle = styled.h2`
   margin: 0;
-`;
-
-const SidePanelContent = styled.div`
-  flex: 1;
-  overflow-y: auto;
+  font-size: 1.2rem;
+  color: #333;
 `;
 
 const FriendsList = styled.div`
-  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 `;
 
-const FriendListItem = styled.div`
+const FriendItem = styled.div`
   display: flex;
-  padding: 10px;
-  border-radius: 8px;
-  transition: background-color 0.2s ease;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border-radius: 4px;
+  background-color: ${props => props.selected ? '#e6f2ff' : '#f5f5f5'};
   cursor: pointer;
+  transition: background-color 0.2s;
   
   &:hover {
-    background-color: #f5f7fa;
+    background-color: ${props => props.selected ? '#d9ecff' : '#e9e9e9'};
   }
 `;
 
-const FriendListAvatar = styled.div`
+const FriendAvatar = styled.div`
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  overflow: hidden;
-  margin-right: 12px;
-  
-  img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-`;
-
-const FriendListInfo = styled.div`
-  flex: 1;
-`;
-
-const FriendListName = styled.div`
-  font-weight: 600;
-  color: #333;
-  margin-bottom: 3px;
-`;
-
-const FriendListLocation = styled.div`
-  font-size: 0.875rem;
-  color: #666;
-  margin-bottom: 3px;
-`;
-
-const FriendListTime = styled.div`
-  font-size: 0.75rem;
-  color: #888;
-`;
-
-const FriendDetail = styled.div`
-  padding: 20px;
-`;
-
-const FriendDetailHeader = styled.div`
+  background-color: #4a90e2;
+  color: white;
   display: flex;
+  justify-content: center;
   align-items: center;
-  margin-bottom: 20px;
+  font-weight: bold;
 `;
 
-const LargeFriendAvatar = styled.div`
-  width: 60px;
-  height: 60px;
-  border-radius: 50%;
-  overflow: hidden;
-  margin-right: 15px;
-  
-  img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
+const FriendInfo = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
 `;
 
-const FriendDetailInfo = styled.div`
-  flex: 1;
-`;
-
-const FriendDetailName = styled.h3`
-  font-size: 1.2rem;
-  font-weight: 600;
+const FriendName = styled.div`
+  font-weight: bold;
   color: #333;
-  margin: 0 0 5px;
 `;
 
 const FriendLocation = styled.div`
-  font-size: 0.95rem;
-  color: #666;
-  margin-bottom: 5px;
-`;
-
-const LastUpdated = styled.div`
   font-size: 0.8rem;
-  color: #888;
-`;
-
-const FriendInterests = styled.div`
-  margin-bottom: 20px;
-`;
-
-const DetailTitle = styled.h4`
-  font-size: 1rem;
-  font-weight: 600;
   color: #666;
-  margin: 0 0 10px;
 `;
 
-const InterestTags = styled.div`
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+const FriendLastUpdated = styled.div`
+  font-size: 0.7rem;
+  color: #999;
 `;
 
-const InterestTag = styled.span`
-  background: rgba(110, 142, 251, 0.1);
-  color: #6e8efb;
-  font-size: 0.875rem;
-  padding: 5px 12px;
-  border-radius: 100px;
-`;
-
-const ActionButtons = styled.div`
-  display: flex;
-  gap: 10px;
-`;
-
-const MessageButton = styled.button`
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #f0f2f5;
-  color: #333;
-  border: none;
-  padding: 10px;
-  border-radius: 8px;
-  font-size: 0.95rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background-color 0.2s ease;
-  
-  &:hover {
-    background-color: #e4e6e9;
-  }
-`;
-
-const DirectionsButton = styled.button`
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #6e8efb;
-  color: white;
-  border: none;
-  padding: 10px;
-  border-radius: 8px;
-  font-size: 0.95rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  
-  &:hover {
-    background-color: #5d7dea;
-  }
-`;
-
-const ButtonIcon = styled.span`
-  margin-right: 5px;
-`;
-
-const MapErrorContainer = styled.div`
+const ActivitiesList = styled.div`
   display: flex;
   flex-direction: column;
+  gap: 0.5rem;
+`;
+
+const ActivityItem = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border-radius: 4px;
+  background-color: ${props => props.selected ? '#e6f2ff' : '#f5f5f5'};
+  cursor: pointer;
+  transition: background-color 0.2s;
+  
+  &:hover {
+    background-color: ${props => props.selected ? '#d9ecff' : '#e9e9e9'};
+  }
+`;
+
+const ActivityIcon = styled.div`
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background-color: #f0f0f0;
+  display: flex;
   justify-content: center;
   align-items: center;
-  height: 100%;
-  padding: 20px;
-  background-color: #fff3f3;
+  font-size: 1.2rem;
 `;
 
-const MapErrorMessage = styled.div`
-  color: #e53935;
-  font-size: 1rem;
-  margin-bottom: 10px;
-  text-align: center;
+const ActivityInfo = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
 `;
 
-const MapErrorHint = styled.div`
+const ActivityName = styled.div`
+  font-weight: bold;
+  color: #333;
+`;
+
+const ActivityDistance = styled.div`
+  font-size: 0.8rem;
   color: #666;
-  font-size: 0.9rem;
-  text-align: center;
 `;
 
 export default Map; 
