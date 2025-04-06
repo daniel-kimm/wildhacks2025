@@ -86,22 +86,37 @@ const Dashboard = () => {
   // Function to generate personalized recommendations using OpenAI
   const generateRecommendations = async (interests) => {
     try {
-      const prompt = `Based on the following interests: ${interests.join(', ')}, recommend 3 places to visit in Chicago. For each place, provide:
-      - name: The name of the place
-      - category: The type of place (e.g., Museum, Park, Restaurant)
-      - description: A brief description of what makes this place interesting
-      - price: Price range (e.g., $, $$, $$$)
-      - bestTime: Best time to visit (e.g., Morning, Afternoon, Evening)
-      - rating: A rating from 1-5
-      - distance: Approximate distance from downtown Chicago
-      - coordinates: Latitude and longitude coordinates for Chicago area
+      console.log('Generating recommendations for interests:', interests);
       
-      Format the response as a JSON array with these fields.`;
+      // Format the prompt as a proper message object for OpenAI
+      const messages = [
+        {
+          role: "system",
+          content: "You are a helpful assistant that provides personalized recommendations for places to visit based on user interests."
+        },
+        {
+          role: "user",
+          content: `Based on the following interests: ${interests.join(', ')}, recommend 3 places to visit in Chicago. For each place, provide:
+          - name: The name of the place
+          - category: The type of place (e.g., Museum, Park, Restaurant)
+          - description: A brief description of what makes this place interesting
+          - price: Price range (e.g., $, $$, $$$)
+          - bestTime: Best time to visit (e.g., Morning, Afternoon, Evening)
+          - rating: A rating from 1-5
+          - distance: Approximate distance from downtown Chicago
+          - coordinates: Latitude and longitude coordinates for Chicago area
+          
+          Format the response as a JSON array with these fields.`
+        }
+      ];
 
-      const response = await generateChatCompletion(prompt);
+      console.log('Sending request to OpenAI API...');
+      const response = await generateChatCompletion(messages);
+      console.log('Received response from OpenAI API:', response);
       
       try {
         const data = JSON.parse(response);
+        console.log('Parsed recommendations data:', data);
         return data.map(place => ({
           id: Math.random().toString(36).substr(2, 9),
           name: place.name,
