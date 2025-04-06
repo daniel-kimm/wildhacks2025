@@ -96,7 +96,6 @@ const Map = () => {
       setMapError("Your browser doesn't support Mapbox GL");
     } else {
       console.log("Mapbox GL is supported in this browser");
-      console.log("Mapbox GL version:", mapboxgl.version);
     }
   }, []);
 
@@ -104,41 +103,35 @@ const Map = () => {
   useEffect(() => {
     console.log("Loading user data and friends");
     const loadUserData = async () => {
-      try {
-        // Get session data from Supabase
-        const { data: { session } } = await supabase.auth.getSession();
+      // Get session data from Supabase
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (session && session.user) {
+        const { user: authUser } = session;
         
-        if (session && session.user) {
-          const { user: authUser } = session;
-          
-          // Set user data from Supabase auth
-          setUser({
-            name: authUser.user_metadata?.full_name || 'User',
-            avatar: authUser.user_metadata?.avatar_url || 'https://via.placeholder.com/40',
-            location: { longitude: -87.6298, latitude: 41.8781 } // Default location
-          });
-        } else {
-          // Fallback to localStorage
-          const savedUserData = localStorage.getItem('userData');
-          if (savedUserData) {
-            const parsedData = JSON.parse(savedUserData);
-            setUser(prevUser => ({
-              ...prevUser,
-              name: parsedData.name || 'User',
-              avatar: parsedData.avatar_url || 'https://via.placeholder.com/40'
-            }));
-          }
+        // Set user data from Supabase auth
+        setUser({
+          name: authUser.user_metadata?.full_name || 'User',
+          avatar: authUser.user_metadata?.avatar_url || 'https://via.placeholder.com/40',
+          location: { longitude: -87.6298, latitude: 41.8781 } // Default location
+        });
+      } else {
+        // Fallback to localStorage
+        const savedUserData = localStorage.getItem('userData');
+        if (savedUserData) {
+          const parsedData = JSON.parse(savedUserData);
+          setUser(prevUser => ({
+            ...prevUser,
+            name: parsedData.name || 'User',
+            avatar: parsedData.avatar_url || 'https://via.placeholder.com/40'
+          }));
         }
-        
-        // Use sample friends data for now
-        setFriends(sampleFriends);
-        setIsLoading(false);
-        setLastUpdated(new Date());
-      } catch (error) {
-        console.error("Error loading user data:", error);
-        setMapError(`Error loading user data: ${error.message}`);
-        setIsLoading(false);
       }
+      
+      // Use sample friends data for now
+      setFriends(sampleFriends);
+      setIsLoading(false);
+      setLastUpdated(new Date());
     };
 
     loadUserData();
@@ -188,20 +181,11 @@ const Map = () => {
     if (mapContainerRef.current && !map.current && mapSupported) {
       try {
         console.log("Initializing map with token:", mapboxgl.accessToken);
-        
-        // Check if the token is valid
-        if (!mapboxgl.accessToken || mapboxgl.accessToken === 'undefined') {
-          console.error("Invalid Mapbox access token");
-          setMapError("Invalid Mapbox access token. Please check your environment variables.");
-          return;
-        }
-        
         map.current = new mapboxgl.Map({
           container: mapContainerRef.current,
           style: 'mapbox://styles/mapbox/streets-v11',
           center: [user.location.longitude, user.location.latitude],
-          zoom: 13,
-          attributionControl: true
+          zoom: 13
         });
 
         // Add navigation controls
@@ -524,18 +508,6 @@ const Map = () => {
             <LoadingText>Loading map data...</LoadingText>
           </LoadingOverlay>
         )}
-        
-        {!mapLoaded && !isLoading && !mapError && mapSupported && (
-          <LoadingOverlay>
-            <LoadingSpinner />
-            <LoadingText>Initializing map...</LoadingText>
-            <DebugInfo>
-              <p>Mapbox Token: {mapboxgl.accessToken ? 'Available' : 'Missing'}</p>
-              <p>Container: {mapContainerRef.current ? 'Ready' : 'Not ready'}</p>
-              <p>Map Instance: {map.current ? 'Created' : 'Not created'}</p>
-            </DebugInfo>
-          </LoadingOverlay>
-        )}
       </MapContent>
       
       <Sidebar>
@@ -602,7 +574,6 @@ const MapContainerDiv = styled.div`
   min-height: 400px;
   border-radius: 8px;
   overflow: hidden;
-  background-color: #f5f5f5; /* Add a background color to make it visible even when empty */
 `;
 
 const MapHeader = styled.div`
@@ -704,8 +675,6 @@ const MapContent = styled.div`
   position: relative;
   height: calc(100vh - 200px); /* Adjust based on your header height */
   min-height: 400px;
-  display: flex;
-  flex-direction: column;
 `;
 
 const ErrorMessage = styled.div`
@@ -883,20 +852,6 @@ const ActivityName = styled.div`
 const ActivityDistance = styled.div`
   font-size: 0.8rem;
   color: #666;
-`;
-
-const DebugInfo = styled.div`
-  margin-top: 1rem;
-  padding: 1rem;
-  background-color: rgba(0, 0, 0, 0.05);
-  border-radius: 4px;
-  font-size: 0.8rem;
-  color: #666;
-  text-align: left;
-  
-  p {
-    margin: 0.25rem 0;
-  }
 `;
 
 export default Map; 

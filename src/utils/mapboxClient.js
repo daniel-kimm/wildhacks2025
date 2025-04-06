@@ -1,14 +1,7 @@
 import mapboxgl from 'mapbox-gl';
 
 // Set Mapbox API key from environment variable
-const mapboxToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN || 'pk.eyJ1Ijoiem91ZHluYXN0eSIsImEiOiJjbTk0cnhqa3QwdzNsMnJweWQ4dmhxanVwIn0.cNqDoYHQZqoQvc16RejvsQ';
-
-// Log token status (without exposing the full token)
-console.log("Mapbox token available:", !!mapboxToken);
-console.log("Mapbox token length:", mapboxToken ? mapboxToken.length : 0);
-
-// Set the token
-mapboxgl.accessToken = mapboxToken;
+mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN || 'pk.eyJ1Ijoiem91ZHluYXN0eSIsImEiOiJjbTk0cnhqa3QwdzNsMnJweWQ4dmhxanVwIn0.cNqDoYHQZqoQvc16RejvsQ';
 
 // Function to find nearby activities based on a center point and radius
 export const findNearbyActivities = async (center, radius = 5000, categories = ['restaurant', 'cafe', 'park', 'museum', 'entertainment']) => {
