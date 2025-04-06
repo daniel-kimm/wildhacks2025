@@ -368,7 +368,7 @@ const Dashboard = () => {
       <MainContent>
         <Section>
           <SectionHeader>
-            <SectionTitle>Solo Hangout Recommendations</SectionTitle>
+            <SectionTitle>I Can't Goon</SectionTitle>
             <SectionSubtitle>Personalized suggestions based on your interests</SectionSubtitle>
             <ViewAllButton onClick={() => handleNavigate('/recommendations')}>
               View All Recommendations
