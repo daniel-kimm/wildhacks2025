@@ -347,7 +347,7 @@ const Dashboard = () => {
             ) : groups.length > 0 ? (
               <GroupsList>
                 {groups.map(group => (
-                  <GroupCard key={group.id} onClick={() => navigate(`/groups/${group.id}`)}>
+                  <GroupCard key={group.id} onClick={() => navigate(`/group/${group.id}`)}>
                     <GroupAvatar>
                       <img src={`https://via.placeholder.com/50?text=${group.name.charAt(0)}`} alt={group.name} />
                     </GroupAvatar>
