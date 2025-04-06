@@ -240,6 +240,7 @@ const Dashboard = () => {
           <NavItem onClick={() => handleNavigate('/friends')}>Friends</NavItem>
           <NavItem onClick={() => handleNavigate('/groups')}>Groups</NavItem>
           <NavItem onClick={() => handleNavigate('/map')}>Map</NavItem>
+          <NavItem onClick={() => handleNavigate('/recommendations')}>Recommendations</NavItem>
         </Navigation>
         <UserSection>
           <NotificationInbox />
@@ -268,12 +269,15 @@ const Dashboard = () => {
           <SectionHeader>
             <SectionTitle>Solo Hangout Recommendations</SectionTitle>
             <SectionSubtitle>Places we think you might enjoy</SectionSubtitle>
+            <ViewAllButton onClick={() => handleNavigate('/recommendations')}>
+              View All Recommendations
+            </ViewAllButton>
           </SectionHeader>
           <RecommendationsGrid>
             {recommendations.map(rec => (
               <RecommendationCard 
                 key={rec.id} 
-                onClick={() => handleRecommendationClick(rec)}
+                onClick={() => handleNavigate('/recommendations')}
               >
                 <RecImage>
                   <img src={`https://via.placeholder.com/300x180?text=${rec.name}`} alt={rec.name} />
@@ -780,6 +784,24 @@ const UserMenuDivider = styled.div`
   height: 1px;
   background: #e1e4e8;
   margin: 5px 0;
+`;
+
+const ViewAllButton = styled.button`
+  background: #6e8efb;
+  color: white;
+  border: none;
+  padding: 8px 15px;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  margin-left: 15px;
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(110, 142, 251, 0.3);
+  }
 `;
 
 export default Dashboard; 
