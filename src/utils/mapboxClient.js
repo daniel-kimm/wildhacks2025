@@ -1,11 +1,15 @@
 import mapboxgl from 'mapbox-gl';
 
-// Set Mapbox API key
-mapboxgl.accessToken = 'pk.eyJ1Ijoiem91ZHluYXN0eSIsImEiOiJjbTk0cnhqa3QwdzNsMnJweWQ4dmhxanVwIn0.cNqDoYHQZqoQvc16RejvsQ';
+// Set Mapbox API key from environment variable
+mapboxgl.accessToken = process.env.VITE_MAPBOX_ACCESS_TOKEN || 'pk.eyJ1Ijoiem91ZHluYXN0eSIsImEiOiJjbTk0cnhqa3QwdzNsMnJweWQ4dmhxanVwIn0.cNqDoYHQZqoQvc16RejvsQ';
 
 // Function to find nearby activities based on a center point and radius
 export const findNearbyActivities = async (center, radius = 5000, categories = ['restaurant', 'cafe', 'park', 'museum', 'entertainment']) => {
   try {
+    if (!mapboxgl.accessToken || mapboxgl.accessToken === 'YOUR_MAPBOX_ACCESS_TOKEN') {
+      throw new Error('Mapbox access token is not set. Please add your Mapbox access token to the environment variables.');
+    }
+    
     // Create a bounding box around the center point
     const bbox = [
       center.longitude - (radius / 111000), // Convert meters to degrees (approximate)
@@ -24,7 +28,8 @@ export const findNearbyActivities = async (center, radius = 5000, categories = [
       );
       
       if (!response.ok) {
-        throw new Error(`Failed to fetch ${category} places: ${response.statusText}`);
+        const errorData = await response.json();
+        throw new Error(`Failed to fetch ${category} places: ${response.statusText}. ${errorData.message || ''}`);
       }
       
       const data = await response.json();
