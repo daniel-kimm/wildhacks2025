@@ -3,6 +3,7 @@ import styled from 'styled-components';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../utils/supabaseClient';
 import NotificationInbox from '../components/NotificationInbox';
+import { getUserRecommendations } from '../utils/recommendations';
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -14,14 +15,7 @@ const Dashboard = () => {
     avatar: null
   });
 
-  // Sample data - would come from API in a real application
-  const [recommendations, setRecommendations] = useState([
-    { id: 1, name: 'Central Park Coffee', category: 'Café', rating: 4.8, distance: '0.8 miles' },
-    { id: 2, name: 'Riverside Trail', category: 'Outdoors', rating: 4.6, distance: '1.5 miles' },
-    { id: 3, name: 'Museum of Modern Art', category: 'Culture', rating: 4.9, distance: '2.3 miles' },
-    { id: 4, name: 'Bookworm Bookstore & Café', category: 'Shopping/Café', rating: 4.5, distance: '0.6 miles' },
-  ]);
-
+  const [recommendations, setRecommendations] = useState([]);
   const [friends, setFriends] = useState([]);
   const [groups, setGroups] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -53,8 +47,9 @@ const Dashboard = () => {
           avatar: profile.avatar_url
         });
         
-        // Fetch recommendations - keeping existing sample data for now
-        // ...
+        // Fetch personalized recommendations
+        const userRecommendations = await getUserRecommendations(authUser.id);
+        setRecommendations(userRecommendations);
         
         // Fetch friends
         await fetchFriends(authUser.id);
@@ -276,7 +271,7 @@ const Dashboard = () => {
                 onClick={() => handleRecommendationClick(rec)}
               >
                 <RecImage>
-                  <img src={`https://via.placeholder.com/300x180?text=${rec.name}`} alt={rec.name} />
+                  <img src={rec.image} alt={rec.name} />
                 </RecImage>
                 <RecContent>
                   <RecName>{rec.name}</RecName>
@@ -285,6 +280,7 @@ const Dashboard = () => {
                     <RecRating>★ {rec.rating}</RecRating>
                   </RecMeta>
                   <RecDistance>{rec.distance}</RecDistance>
+                  <RecDescription>{rec.description}</RecDescription>
                 </RecContent>
               </RecommendationCard>
             ))}
@@ -597,6 +593,13 @@ const RecRating = styled.span`
 const RecDistance = styled.div`
   font-size: 0.875rem;
   color: #888;
+`;
+
+const RecDescription = styled.p`
+  font-size: 0.9rem;
+  color: #666;
+  margin: 8px 0;
+  line-height: 1.4;
 `;
 
 const FriendsSection = styled.div`
