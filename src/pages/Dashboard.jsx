@@ -88,6 +88,11 @@ const Dashboard = () => {
     try {
       console.log('Generating recommendations for interests:', interests);
       
+      // If no interests, use a default set
+      const userInterests = interests && interests.length > 0 
+        ? interests 
+        : ['general activities', 'local attractions'];
+      
       // Format the prompt as a proper message object for OpenAI
       const messages = [
         {
@@ -96,7 +101,7 @@ const Dashboard = () => {
         },
         {
           role: "user",
-          content: `Based on the following interests: ${interests.join(', ')}, recommend 3 places to visit in Chicago. For each place, provide:
+          content: `Based on the following interests: ${userInterests.join(', ')}, recommend 3 places to visit in Chicago. For each place, provide:
           - name: The name of the place
           - category: The type of place (e.g., Museum, Park, Restaurant)
           - description: A brief description of what makes this place interesting
@@ -115,19 +120,26 @@ const Dashboard = () => {
       console.log('Received response from OpenAI API:', response);
       
       try {
+        // Try to parse the response as JSON
         const data = JSON.parse(response);
         console.log('Parsed recommendations data:', data);
-        return data.map(place => ({
-          id: Math.random().toString(36).substr(2, 9),
-          name: place.name,
-          category: place.category,
-          description: place.description,
-          price: place.price,
-          bestTime: place.bestTime,
-          rating: place.rating,
-          distance: place.distance,
-          coordinates: place.coordinates
-        }));
+        
+        // Ensure we have an array of recommendations
+        if (Array.isArray(data) && data.length > 0) {
+          return data.map(place => ({
+            id: Math.random().toString(36).substr(2, 9),
+            name: place.name,
+            category: place.category,
+            description: place.description,
+            price: place.price,
+            bestTime: place.bestTime,
+            rating: place.rating,
+            distance: place.distance,
+            coordinates: place.coordinates
+          }));
+        } else {
+          throw new Error('Invalid response format: not an array or empty array');
+        }
       } catch (error) {
         console.error('Error parsing recommendations:', error);
         // Fallback recommendations if parsing fails
@@ -169,6 +181,7 @@ const Dashboard = () => {
       }
     } catch (error) {
       console.error('Error generating recommendations:', error);
+      // Return empty array if there's an error
       return [];
     }
   };

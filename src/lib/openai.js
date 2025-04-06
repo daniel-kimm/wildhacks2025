@@ -3,6 +3,7 @@ import OpenAI from 'openai';
 // Initialize the OpenAI client with your API key from environment variables
 const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
 console.log('OpenAI API Key available:', !!apiKey);
+console.log('OpenAI API Key value:', apiKey ? 'sk-...' + apiKey.slice(-4) : 'Not set');
 
 const openai = new OpenAI({
   apiKey: apiKey,
