@@ -3,6 +3,7 @@ import styled from 'styled-components';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../utils/supabaseClient';
 import NotificationInbox from '../components/NotificationInbox';
+import { generateChatCompletion } from '../lib/openai';
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -11,16 +12,13 @@ const Dashboard = () => {
   const [user, setUser] = useState({
     id: null,
     name: 'User',
-    avatar: null
+    avatar: null,
+    interests: []
   });
 
-  // Sample data - would come from API in a real application
-  const [recommendations, setRecommendations] = useState([
-    { id: 1, name: 'Central Park Coffee', category: 'Café', rating: 4.8, distance: '0.8 miles' },
-    { id: 2, name: 'Riverside Trail', category: 'Outdoors', rating: 4.6, distance: '1.5 miles' },
-    { id: 3, name: 'Museum of Modern Art', category: 'Culture', rating: 4.9, distance: '2.3 miles' },
-    { id: 4, name: 'Bookworm Bookstore & Café', category: 'Shopping/Café', rating: 4.5, distance: '0.6 miles' },
-  ]);
+  // Recommendations state
+  const [recommendations, setRecommendations] = useState([]);
+  const [isLoadingRecommendations, setIsLoadingRecommendations] = useState(true);
 
   const [friends, setFriends] = useState([]);
   const [groups, setGroups] = useState([]);
@@ -31,6 +29,7 @@ const Dashboard = () => {
   useEffect(() => {
     const fetchUserData = async () => {
       try {
+        setIsLoading(true);
         const { data: { user: authUser } } = await supabase.auth.getUser();
         
         if (!authUser) {
@@ -44,24 +43,36 @@ const Dashboard = () => {
           .select('*')
           .eq('id', authUser.id)
           .single();
-          
+        
         if (profileError) throw profileError;
+        
+        // Parse interests from profile
+        const userInterests = profile.interests 
+          ? (typeof profile.interests === 'string' 
+              ? JSON.parse(profile.interests)
+              : Array.isArray(profile.interests) 
+                ? profile.interests 
+                : [])
+          : [];
         
         setUser({
           id: authUser.id,
           name: profile.name || authUser.email?.split('@')[0] || 'User',
-          avatar: profile.avatar_url
+          avatar: profile.avatar_url,
+          interests: userInterests
         });
         
-        // Fetch recommendations - keeping existing sample data for now
-        // ...
+        // Generate personalized recommendations based on user interests
+        setIsLoadingRecommendations(true);
+        const recommendationsData = await generateRecommendations(userInterests);
+        setRecommendations(recommendationsData);
+        setIsLoadingRecommendations(false);
         
         // Fetch friends
         await fetchFriends(authUser.id);
         
         // Fetch groups
         await fetchGroups(authUser.id);
-        
       } catch (error) {
         console.error('Error fetching user data:', error);
       } finally {
@@ -71,6 +82,81 @@ const Dashboard = () => {
     
     fetchUserData();
   }, [navigate]);
+  
+  // Function to generate personalized recommendations using OpenAI
+  const generateRecommendations = async (interests) => {
+    try {
+      const prompt = `Based on the following interests: ${interests.join(', ')}, recommend 3 places to visit in Chicago. For each place, provide:
+      - name: The name of the place
+      - category: The type of place (e.g., Museum, Park, Restaurant)
+      - description: A brief description of what makes this place interesting
+      - price: Price range (e.g., $, $$, $$$)
+      - bestTime: Best time to visit (e.g., Morning, Afternoon, Evening)
+      - rating: A rating from 1-5
+      - distance: Approximate distance from downtown Chicago
+      - coordinates: Latitude and longitude coordinates for Chicago area
+      
+      Format the response as a JSON array with these fields.`;
+
+      const response = await generateChatCompletion(prompt);
+      
+      try {
+        const data = JSON.parse(response);
+        return data.map(place => ({
+          id: Math.random().toString(36).substr(2, 9),
+          name: place.name,
+          category: place.category,
+          description: place.description,
+          price: place.price,
+          bestTime: place.bestTime,
+          rating: place.rating,
+          distance: place.distance,
+          coordinates: place.coordinates
+        }));
+      } catch (error) {
+        console.error('Error parsing recommendations:', error);
+        // Fallback recommendations if parsing fails
+        return [
+          {
+            id: '1',
+            name: 'Art Institute of Chicago',
+            category: 'Museum',
+            description: 'World-class art museum featuring iconic works like American Gothic',
+            price: '$$',
+            bestTime: 'Morning',
+            rating: 4.8,
+            distance: '0.5 miles',
+            coordinates: { lat: 41.8796, lng: -87.6237 }
+          },
+          {
+            id: '2',
+            name: 'Millennium Park',
+            category: 'Park',
+            description: 'Famous park featuring Cloud Gate (The Bean) and outdoor concerts',
+            price: 'Free',
+            bestTime: 'Afternoon',
+            rating: 4.9,
+            distance: '0.3 miles',
+            coordinates: { lat: 41.8822, lng: -87.6218 }
+          },
+          {
+            id: '3',
+            name: 'Lou Malnati\'s Pizzeria',
+            category: 'Restaurant',
+            description: 'Famous Chicago deep dish pizza restaurant',
+            price: '$$',
+            bestTime: 'Evening',
+            rating: 4.7,
+            distance: '1.2 miles',
+            coordinates: { lat: 41.8959, lng: -87.6298 }
+          }
+        ];
+      }
+    } catch (error) {
+      console.error('Error generating recommendations:', error);
+      return [];
+    }
+  };
   
   // Function to load friends from Supabase
   const fetchFriends = async (userId) => {
@@ -268,31 +354,57 @@ const Dashboard = () => {
         <Section>
           <SectionHeader>
             <SectionTitle>Solo Hangout Recommendations</SectionTitle>
-            <SectionSubtitle>Places we think you might enjoy</SectionSubtitle>
+            <SectionSubtitle>Personalized suggestions based on your interests</SectionSubtitle>
             <ViewAllButton onClick={() => handleNavigate('/recommendations')}>
               View All Recommendations
             </ViewAllButton>
           </SectionHeader>
-          <RecommendationsGrid>
-            {recommendations.map(rec => (
-              <RecommendationCard 
-                key={rec.id} 
-                onClick={() => handleNavigate('/recommendations')}
-              >
-                <RecImage>
-                  <img src={`https://via.placeholder.com/300x180?text=${rec.name}`} alt={rec.name} />
-                </RecImage>
-                <RecContent>
-                  <RecName>{rec.name}</RecName>
-                  <RecMeta>
-                    <RecCategory>{rec.category}</RecCategory>
-                    <RecRating>★ {rec.rating}</RecRating>
-                  </RecMeta>
-                  <RecDistance>{rec.distance}</RecDistance>
-                </RecContent>
-              </RecommendationCard>
-            ))}
-          </RecommendationsGrid>
+          
+          {user?.interests && user.interests.length > 0 && (
+            <InterestsContainer>
+              <InterestsTitle>Based on your interests:</InterestsTitle>
+              <InterestsList>
+                {user.interests.map((interest, index) => (
+                  <InterestTag key={index}>{interest}</InterestTag>
+                ))}
+              </InterestsList>
+            </InterestsContainer>
+          )}
+          
+          {isLoadingRecommendations ? (
+            <LoadingContainer>
+              <LoadingSpinner />
+              <LoadingText>Generating personalized recommendations...</LoadingText>
+            </LoadingContainer>
+          ) : (
+            <RecommendationsGrid>
+              {recommendations.map(rec => (
+                <RecommendationCard 
+                  key={rec.id} 
+                  onClick={() => handleNavigate('/recommendations')}
+                >
+                  <RecImage>
+                    <img src={`https://via.placeholder.com/300x180?text=${rec.name}`} alt={rec.name} />
+                  </RecImage>
+                  <RecContent>
+                    <RecName>{rec.name}</RecName>
+                    <RecMeta>
+                      <RecCategory>{rec.category}</RecCategory>
+                      <RecRating>★ {rec.rating}</RecRating>
+                    </RecMeta>
+                    {rec.description && (
+                      <RecDescription>{rec.description}</RecDescription>
+                    )}
+                    <RecDetails>
+                      {rec.price && <RecPrice>{rec.price}</RecPrice>}
+                      {rec.bestTime && <RecTime>{rec.bestTime}</RecTime>}
+                      <RecDistance>{rec.distance}</RecDistance>
+                    </RecDetails>
+                  </RecContent>
+                </RecommendationCard>
+              ))}
+            </RecommendationsGrid>
+          )}
         </Section>
 
         <SidebarContent>
@@ -584,23 +696,48 @@ const RecName = styled.h3`
 const RecMeta = styled.div`
   display: flex;
   justify-content: space-between;
-  margin-bottom: 5px;
+  align-items: center;
+  margin-bottom: 8px;
 `;
 
 const RecCategory = styled.span`
+  background-color: #f0f0f0;
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 0.75rem;
   color: #666;
-  font-size: 0.875rem;
 `;
 
 const RecRating = styled.span`
-  color: #f5b400;
-  font-weight: 600;
+  color: #ffd700;
   font-size: 0.875rem;
 `;
 
-const RecDistance = styled.div`
+const RecDescription = styled.p`
+  color: #666;
   font-size: 0.875rem;
-  color: #888;
+  margin-bottom: 8px;
+  line-height: 1.4;
+`;
+
+const RecDetails = styled.div`
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  font-size: 0.75rem;
+  color: #666;
+`;
+
+const RecPrice = styled.span`
+  color: #2ecc71;
+`;
+
+const RecTime = styled.span`
+  color: #3498db;
+`;
+
+const RecDistance = styled.span`
+  color: #666;
 `;
 
 const FriendsSection = styled.div`
@@ -802,6 +939,62 @@ const ViewAllButton = styled.button`
     transform: translateY(-2px);
     box-shadow: 0 5px 15px rgba(110, 142, 251, 0.3);
   }
+`;
+
+const LoadingContainer = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  background: #f8f9fa;
+  border-radius: 8px;
+  min-height: 200px;
+`;
+
+const LoadingSpinner = styled.div`
+  width: 40px;
+  height: 40px;
+  border: 3px solid #f3f3f3;
+  border-top: 3px solid #3498db;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 1rem;
+
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+`;
+
+const LoadingText = styled.p`
+  color: #666;
+  font-size: 0.875rem;
+  text-align: center;
+`;
+
+const InterestsContainer = styled.div`
+  margin-bottom: 1.5rem;
+`;
+
+const InterestsTitle = styled.h3`
+  font-size: 0.875rem;
+  color: #666;
+  margin-bottom: 0.5rem;
+`;
+
+const InterestsList = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+`;
+
+const InterestTag = styled.span`
+  background-color: #e3f2fd;
+  color: #1976d2;
+  padding: 4px 12px;
+  border-radius: 16px;
+  font-size: 0.75rem;
 `;
 
 export default Dashboard; 
