@@ -5,10 +5,10 @@ import { supabase } from '../utils/supabaseClient';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import '../utils/mapboxStyles.css';
-import { findActivitiesNearGroup as findActivitiesNearGroupAPI } from '../utils/chatgptClient';
+import { findActivitiesNearGroup as findActivitiesNearGroupAPI } from '../utils/mapboxClient';
 
-// Set Mapbox API key from environment variable
-mapboxgl.accessToken = process.env.VITE_MAPBOX_ACCESS_TOKEN || 'pk.eyJ1Ijoiem91ZHluYXN0eSIsImEiOiJjbTk0cnhqa3QwdzNsMnJweWQ4dmhxanVwIn0.cNqDoYHQZqoQvc16RejvsQ';
+// Set Mapbox API key
+mapboxgl.accessToken = 'pk.eyJ1Ijoiem91ZHluYXN0eSIsImEiOiJjbTk0cnhqa3QwdzNsMnJweWQ4dmhxanVwIn0.cNqDoYHQZqoQvc16RejvsQ';
 
 const Map = () => {
   const navigate = useNavigate();
@@ -362,7 +362,7 @@ const Map = () => {
         }))
       ];
       
-      // Find activities near the group using ChatGPT
+      // Find activities near the group
       const nearbyActivities = await findActivitiesNearGroupAPI(
         allLocations,
         searchRadius,
@@ -374,21 +374,11 @@ const Map = () => {
         return;
       }
       
-      // Transform the activities to match the expected format
-      const formattedActivities = nearbyActivities.map(activity => ({
-        id: activity.name.replace(/\s+/g, '-').toLowerCase(),
-        text: activity.name,
-        category: activity.category,
-        center: [activity.longitude, activity.latitude],
-        distance: activity.distance,
-        description: activity.description
-      }));
-      
-      setActivities(formattedActivities);
+      setActivities(nearbyActivities);
       setSelectedActivity(null);
       
       // If we found activities, pan to the center of the group
-      if (formattedActivities.length > 0 && map.current) {
+      if (nearbyActivities.length > 0 && map.current) {
         const center = calculateCenterPoint(allLocations);
         map.current.flyTo({
           center: [center.longitude, center.latitude],
@@ -398,8 +388,8 @@ const Map = () => {
       }
     } catch (error) {
       console.error('Error finding activities:', error);
-      if (error.message.includes('OpenAI API key')) {
-        setMapError('OpenAI API key is not configured. Please add your OpenAI API key to the environment variables.');
+      if (error.message.includes('Mapbox access token')) {
+        setMapError('Mapbox API key is not configured. Please add your Mapbox access token to the environment variables.');
       } else {
         setMapError(`Failed to find activities: ${error.message}`);
       }
