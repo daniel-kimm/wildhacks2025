@@ -381,7 +381,7 @@ const Dashboard = () => {
       <MainContent>
         <Section>
           <SectionHeader>
-            <SectionTitle>I Can't Goon</SectionTitle>
+            <SectionTitle>Wildhacks 2025</SectionTitle>
             <SectionSubtitle>Personalized suggestions based on your interests</SectionSubtitle>
             <ViewAllButton onClick={() => handleNavigate('/recommendations')}>
               View All Recommendations
