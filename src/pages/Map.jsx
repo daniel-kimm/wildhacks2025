@@ -7,12 +7,12 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 import '../utils/mapboxStyles.css';
 import { findActivitiesNearGroup as findActivitiesNearGroupAPI } from '../utils/mapboxClient';
 
-// Set Mapbox API key
-mapboxgl.accessToken = 'pk.eyJ1Ijoiem91ZHluYXN0eSIsImEiOiJjbTk0cnhqa3QwdzNsMnJweWQ4dmhxanVwIn0.cNqDoYHQZqoQvc16RejvsQ';
+// Set Mapbox API key from environment variable
+mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN || 'pk.eyJ1Ijoiem91ZHluYXN0eSIsImEiOiJjbTk0cnhqa3QwdzNsMnJweWQ4dmhxanVwIn0.cNqDoYHQZqoQvc16RejvsQ';
 
 const Map = () => {
   const navigate = useNavigate();
-  const mapContainer = useRef(null);
+  const mapContainerRef = useRef(null);
   const map = useRef(null);
   const markersRef = useRef([]);
   const [mapLoaded, setMapLoaded] = useState(false);
@@ -89,14 +89,19 @@ const Map = () => {
 
   // Check if browser supports Mapbox GL
   useEffect(() => {
+    console.log("Checking if Mapbox GL is supported");
     if (!mapboxgl.supported()) {
+      console.error("Mapbox GL is not supported in this browser");
       setMapSupported(false);
       setMapError("Your browser doesn't support Mapbox GL");
+    } else {
+      console.log("Mapbox GL is supported in this browser");
     }
   }, []);
 
   // Load user data and friends on component mount
   useEffect(() => {
+    console.log("Loading user data and friends");
     const loadUserData = async () => {
       // Get session data from Supabase
       const { data: { session } } = await supabase.auth.getSession();
@@ -168,10 +173,16 @@ const Map = () => {
 
   // Initialize Mapbox when container is available - only once
   useEffect(() => {
-    if (mapContainer.current && !map.current && mapSupported) {
+    console.log("Map initialization effect triggered");
+    console.log("mapContainerRef.current:", mapContainerRef.current);
+    console.log("map.current:", map.current);
+    console.log("mapSupported:", mapSupported);
+    
+    if (mapContainerRef.current && !map.current && mapSupported) {
       try {
+        console.log("Initializing map with token:", mapboxgl.accessToken);
         map.current = new mapboxgl.Map({
-          container: mapContainer.current,
+          container: mapContainerRef.current,
           style: 'mapbox://styles/mapbox/streets-v11',
           center: [user.location.longitude, user.location.latitude],
           zoom: 13
@@ -181,6 +192,7 @@ const Map = () => {
         map.current.addControl(new mapboxgl.NavigationControl(), 'top-right');
 
         map.current.on('load', () => {
+          console.log("Map loaded successfully");
           setMapLoaded(true);
         });
         
@@ -196,11 +208,12 @@ const Map = () => {
     
     return () => {
       if (map.current) {
+        console.log("Cleaning up map");
         map.current.remove();
         map.current = null;
       }
     };
-  }, [mapSupported]); // Only depend on mapSupported, not user.location
+  }, [mapSupported, user.location]); // Add user.location as a dependency
 
   // Add markers to the map when it's loaded and when friends/activities change
   useEffect(() => {
@@ -475,7 +488,7 @@ const Map = () => {
       </MapHeader>
       
       <MapContent>
-        <MapContainer ref={mapContainer} />
+        <MapContainerDiv ref={mapContainerRef} />
         
         {mapError && (
           <ErrorMessage>
@@ -552,6 +565,15 @@ const MapContainer = styled.div`
   height: 100vh;
   width: 100%;
   position: relative;
+`;
+
+const MapContainerDiv = styled.div`
+  width: 100%;
+  height: 100%;
+  position: relative;
+  min-height: 400px;
+  border-radius: 8px;
+  overflow: hidden;
 `;
 
 const MapHeader = styled.div`
@@ -651,6 +673,8 @@ const SearchButton = styled.button`
 const MapContent = styled.div`
   flex: 1;
   position: relative;
+  height: calc(100vh - 200px); /* Adjust based on your header height */
+  min-height: 400px;
 `;
 
 const ErrorMessage = styled.div`
