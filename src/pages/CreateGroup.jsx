@@ -145,6 +145,9 @@ const CreateGroup = () => {
     setIsLoading(true);
     
     try {
+      console.log("Creating new group:", groupName);
+      console.log("Selected friends to invite:", selectedFriends);
+      
       // Create the group in Supabase
       const { data: newGroup, error: groupError } = await supabase
         .from('groups')
@@ -157,6 +160,7 @@ const CreateGroup = () => {
         .single();
       
       if (groupError) {
+        console.error("Error creating group:", groupError);
         throw groupError;
       }
       
@@ -176,6 +180,8 @@ const CreateGroup = () => {
         throw memberError;
       }
       
+      console.log("Creator added as admin member");
+      
       // Send invitations to selected friends instead of adding them directly
       if (selectedFriends.length > 0) {
         const invitations = selectedFriends.map(friendId => ({
@@ -185,18 +191,24 @@ const CreateGroup = () => {
           status: 'pending'
         }));
         
-        const { error: invitationError } = await supabase
+        console.log("Sending group invitations:", invitations);
+        
+        const { data: invitesData, error: invitationError } = await supabase
           .from('group_invitations')
-          .insert(invitations);
+          .insert(invitations)
+          .select();
         
         if (invitationError) {
           console.error('Error sending group invitations:', invitationError);
           throw invitationError;
         }
         
-        console.log('Sent group invitations to:', selectedFriends.length, 'friends');
+        console.log('Group invitations sent successfully:', invitesData);
+      } else {
+        console.log("No friends selected for invitation");
       }
       
+      alert('Group created successfully!');
       // Navigate back to dashboard
       navigate('/dashboard');
     } catch (error) {

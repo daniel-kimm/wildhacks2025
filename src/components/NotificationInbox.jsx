@@ -215,20 +215,42 @@ const NotificationInbox = () => {
     }
   };
 
-  // Add a new function to fetch group invitations
+  // Update the useEffect to fetch group invitations separately
+  useEffect(() => {
+    if (isOpen) {
+      const fetchNotifications = async () => {
+        setLoading(true);
+        try {
+          await fetchFriendRequests();
+          // Add a delay before fetching group invitations to ensure both are loaded
+          await fetchGroupInvitations();
+          console.log("Notifications fetch complete");
+        } catch (error) {
+          console.error("Error fetching notifications:", error);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      fetchNotifications();
+    }
+  }, [isOpen]);
+
+  // Updated fetchGroupInvitations with improved logging
   const fetchGroupInvitations = async () => {
     try {
+      console.log("Starting to fetch group invitations");
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
-        console.log("No authenticated user found");
+        console.error("No authenticated user found for group invitations");
         return;
       }
       
       console.log("Fetching group invitations for user:", user.id);
       
-      // Get pending group invitations
+      // Get pending group invitations - using the proper table name and column names
       const { data: rawInvites, error: invitesError } = await supabase
-        .from('group_invitations')
+        .from('group_invitations')  // Make sure this matches your Supabase table name exactly
         .select('*')
         .eq('recipient_id', user.id)
         .eq('status', 'pending');
@@ -241,12 +263,15 @@ const NotificationInbox = () => {
       console.log("Raw group invitations found:", rawInvites?.length || 0, rawInvites);
       
       if (!rawInvites || rawInvites.length === 0) {
+        console.log("No pending group invitations found");
         setGroupInvites([]);
         return;
       }
       
       // Get group details for each invitation
       const groupIds = rawInvites.map(invite => invite.group_id);
+      console.log("Fetching details for groups:", groupIds);
+      
       const { data: groupsData, error: groupsError } = await supabase
         .from('groups')
         .select('*')
@@ -257,8 +282,12 @@ const NotificationInbox = () => {
         throw groupsError;
       }
       
+      console.log("Groups data retrieved:", groupsData);
+      
       // Get sender profiles
       const senderIds = rawInvites.map(invite => invite.sender_id);
+      console.log("Fetching sender profiles:", senderIds);
+      
       const { data: senderProfiles, error: profilesError } = await supabase
         .from('profiles')
         .select('*')
@@ -268,6 +297,8 @@ const NotificationInbox = () => {
         console.error('Error fetching sender profiles:', profilesError);
         throw profilesError;
       }
+      
+      console.log("Sender profiles retrieved:", senderProfiles);
       
       // Create maps for easy lookup
       const groupMap = {};
@@ -308,7 +339,9 @@ const NotificationInbox = () => {
       setGroupInvites(formattedInvites);
       
       // Update total count
-      setNotificationCount(prev => requests.length + formattedInvites.length);
+      const newCount = requests.length + formattedInvites.length;
+      console.log(`Setting notification count to ${newCount} (${requests.length} requests + ${formattedInvites.length} invites)`);
+      setNotificationCount(newCount);
       
     } catch (error) {
       console.error('Error fetching group invitations:', error);
@@ -394,12 +427,12 @@ const NotificationInbox = () => {
       {isOpen && (
         <NotificationDropdown>
           <NotificationHeader>
-            Friend Requests
+            Notifications
             {loading && <LoadingSpinner />}
           </NotificationHeader>
           
           {requests.length === 0 && groupInvites.length === 0 ? (
-            <EmptyNotification>No pending friend requests</EmptyNotification>
+            <EmptyNotification>No pending notifications</EmptyNotification>
           ) : (
             <NotificationList>
               {requests.length > 0 && (
