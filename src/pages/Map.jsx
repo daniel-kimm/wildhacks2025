@@ -205,18 +205,19 @@ const Map = () => {
     }, 800);
   };
 
-  // Initialize Mapbox when container is available and user location is fetched
+  // Initialize Mapbox when container is available
   useEffect(() => {
     console.log("Initializing map:", {
       containerExists: !!mapContainer.current,
       mapExists: !!map.current,
       userLocation: user.location,
-      mapSupported: mapSupported,
-      locationLoading: locationLoading
+      mapSupported: mapSupported
     });
     
-    if (mapContainer.current && !map.current && mapSupported && !locationLoading) {
+    // Only initialize if we have a container and map isn't already created
+    if (mapContainer.current && !map.current && mapSupported) {
       try {
+        console.log("Creating new map instance");
         map.current = new mapboxgl.Map({
           container: mapContainer.current,
           style: 'mapbox://styles/mapbox/streets-v11',
@@ -233,7 +234,9 @@ const Map = () => {
           
           // Force a resize in case the container dimensions were not correctly detected
           setTimeout(() => {
-            map.current && map.current.resize();
+            if (map.current) {
+              map.current.resize();
+            }
           }, 100);
         });
         
@@ -249,11 +252,21 @@ const Map = () => {
     
     return () => {
       if (map.current) {
+        console.log("Cleaning up map instance");
         map.current.remove();
         map.current = null;
+        setMapLoaded(false);
       }
     };
-  }, [user.location, mapSupported, locationLoading]);
+  }, [mapContainer, mapSupported, user.location]); // Include user.location to re-initialize on location changes
+
+  // Update map center when user location changes
+  useEffect(() => {
+    if (map.current && !locationLoading) {
+      console.log("Updating map center to user location:", user.location);
+      map.current.setCenter([user.location.longitude, user.location.latitude]);
+    }
+  }, [user.location, locationLoading]);
 
   // Add markers to the map when it's loaded and when friends change
   useEffect(() => {
@@ -263,7 +276,8 @@ const Map = () => {
       friendsCount: friends.length
     });
     
-    if (mapLoaded && map.current) {
+    // Only add markers if map is loaded and available
+    if (map.current && mapLoaded) {
       try {
         // Remove existing markers
         const existingMarkers = document.querySelectorAll('.mapboxgl-marker');
@@ -324,6 +338,17 @@ const Map = () => {
       }
     }
   }, [mapLoaded, friends, selectedFriend, user]);
+
+  // Update map rendering for the container
+  useEffect(() => {
+    // This ensures the map renders properly if the container size changes
+    // or when returning to the page
+    if (map.current && mapLoaded) {
+      setTimeout(() => {
+        map.current.resize();
+      }, 200);
+    }
+  }, [mapLoaded]);
 
   // Handle navigations
   const handleNavigate = (path) => {
@@ -417,11 +442,7 @@ const Map = () => {
           </MapControls>
           
           <MapContainer>
-            {isLoading || locationLoading ? (
-              <LoadingState>
-                <LoadingText>{locationLoading ? 'Getting your location...' : 'Loading map...'}</LoadingText>
-              </LoadingState>
-            ) : mapError ? (
+            {mapError ? (
               <MapErrorContainer>
                 <MapErrorMessage>
                   Error loading map: {mapError}
