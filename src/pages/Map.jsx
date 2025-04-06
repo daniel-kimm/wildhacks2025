@@ -14,6 +14,7 @@ const Map = () => {
   const navigate = useNavigate();
   const mapContainer = useRef(null);
   const map = useRef(null);
+  const markersRef = useRef([]);
   const [mapLoaded, setMapLoaded] = useState(false);
   const [mapError, setMapError] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(new Date());
@@ -165,15 +166,8 @@ const Map = () => {
     }, 800);
   };
 
-  // Initialize Mapbox when container is available
+  // Initialize Mapbox when container is available - only once
   useEffect(() => {
-    console.log("Initializing map:", {
-      containerExists: !!mapContainer.current,
-      mapExists: !!map.current,
-      userLocation: user.location,
-      mapSupported: mapSupported
-    });
-    
     if (mapContainer.current && !map.current && mapSupported) {
       try {
         map.current = new mapboxgl.Map({
@@ -187,13 +181,7 @@ const Map = () => {
         map.current.addControl(new mapboxgl.NavigationControl(), 'top-right');
 
         map.current.on('load', () => {
-          console.log("Map loaded successfully");
           setMapLoaded(true);
-          
-          // Force a resize in case the container dimensions were not correctly detected
-          setTimeout(() => {
-            map.current && map.current.resize();
-          }, 100);
         });
         
         map.current.on('error', (e) => {
@@ -212,21 +200,15 @@ const Map = () => {
         map.current = null;
       }
     };
-  }, [user.location, mapSupported]);
+  }, [mapSupported]); // Only depend on mapSupported, not user.location
 
-  // Add markers to the map when it's loaded and when friends change
+  // Add markers to the map when it's loaded and when friends/activities change
   useEffect(() => {
-    console.log("Adding markers:", {
-      mapLoaded: mapLoaded,
-      mapExists: !!map.current,
-      friendsCount: friends.length
-    });
-    
     if (mapLoaded && map.current) {
       try {
-        // Remove existing markers
-        const existingMarkers = document.querySelectorAll('.mapboxgl-marker');
-        existingMarkers.forEach(marker => marker.remove());
+        // Clear existing markers
+        markersRef.current.forEach(marker => marker.remove());
+        markersRef.current = [];
 
         // Add user marker
         const userEl = document.createElement('div');
@@ -246,15 +228,16 @@ const Map = () => {
         userEl.appendChild(userAvatar);
         userEl.appendChild(userLabel);
         
-        new mapboxgl.Marker(userEl)
+        const userMarker = new mapboxgl.Marker(userEl)
           .setLngLat([user.location.longitude, user.location.latitude])
           .addTo(map.current);
+        
+        markersRef.current.push(userMarker);
 
         // Add friend markers
         friends.forEach(friend => {
           const el = document.createElement('div');
           el.className = 'friend-marker-container';
-          el.addEventListener('click', () => handleSelectFriend(friend));
           
           const avatar = document.createElement('div');
           avatar.className = 'marker-avatar friend-marker';
@@ -267,9 +250,14 @@ const Map = () => {
           el.appendChild(avatar);
           el.appendChild(label);
           
-          new mapboxgl.Marker(el)
+          const marker = new mapboxgl.Marker(el)
             .setLngLat([friend.location.longitude, friend.location.latitude])
             .addTo(map.current);
+          
+          // Add click event listener
+          el.addEventListener('click', () => handleSelectFriend(friend));
+          
+          markersRef.current.push(marker);
         });
         
         // Add activity markers if they exist
@@ -277,7 +265,6 @@ const Map = () => {
           activities.forEach(activity => {
             const el = document.createElement('div');
             el.className = 'activity-marker-container';
-            el.addEventListener('click', () => handleSelectActivity(activity));
             
             const icon = document.createElement('div');
             icon.className = 'marker-avatar activity-marker';
@@ -290,16 +277,21 @@ const Map = () => {
             el.appendChild(icon);
             el.appendChild(label);
             
-            new mapboxgl.Marker(el)
+            const marker = new mapboxgl.Marker(el)
               .setLngLat(activity.center)
               .addTo(map.current);
+            
+            // Add click event listener
+            el.addEventListener('click', () => handleSelectActivity(activity));
+            
+            markersRef.current.push(marker);
           });
         }
       } catch (error) {
         console.error("Error adding markers:", error);
       }
     }
-  }, [mapLoaded, friends, activities]);
+  }, [mapLoaded, friends, activities, user.location]);
 
   // Function to handle friend selection
   const handleSelectFriend = (friend) => {
